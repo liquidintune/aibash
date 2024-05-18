@@ -67,7 +67,9 @@ monitor_vms() {
 monitoring_loop() {
     while true; do
         monitor_services
-        monitor_vms
+        if [ "$HV" == "true" ]; then
+             monitor_vms
+        fi
         sleep 60
     done
 }
