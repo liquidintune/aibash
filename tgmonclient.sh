@@ -38,7 +38,11 @@ fi
 # Функция для отправки сообщений в Telegram
 send_telegram_message() {
     local message=$1
-    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message"
+    local buttons=$2
+    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -d chat_id="$TELEGRAM_CHAT_ID" \
+        -d text="$message" \
+        -d reply_markup="$buttons"
 }
 
 # Функция для мониторинга сервисов systemd
@@ -55,11 +59,31 @@ monitor_services() {
 monitor_vms() {
     local vms=$(qm list --output-format json)
     local vms_status=$(echo $vms | jq -r '.[] | "\(.vmid): \(.name) (\(.status))"')
+    local buttons=""
+
     for vm in $vms_status; do
+        local vm_id=$(echo $vm | cut -d: -f1)
+        local vm_name=$(echo $vm | cut -d: -f2 | awk '{print $1}')
         local status=$(echo $vm | awk '{print $3}')
+
         if [ "$status" != "(running)" ]; then
             send_telegram_message "VM $vm is not running on server $SERVER_ID!"
         fi
+
+        local inline_keyboard=$(cat <<EOF
+{
+    "inline_keyboard": [
+        [
+            {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
+            {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
+            {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
+        ]
+    ]
+}
+EOF
+)
+        buttons=$(echo $inline_keyboard | jq -c .)
+        send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
     done
 }
 
@@ -67,9 +91,7 @@ monitor_vms() {
 monitoring_loop() {
     while true; do
         monitor_services
-        if [ "$HV" == "true" ]; then
-             monitor_vms
-        fi
+        monitor_vms
         sleep 60
     done
 }
@@ -89,7 +111,11 @@ handle_telegram_commands() {
 
             local update_id=$(_jq '.update_id')
             local message_text=$(_jq '.message.text')
+            local callback_query_id=$(_jq '.callback_query.id')
+            local callback_data=$(_jq '.callback_query.data')
             local chat_id=$(_jq '.message.chat.id')
+            local message_id=$(_jq '.callback_query.message.message_id')
+            local from_id=$(_jq '.callback_query.from.id')
 
             if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
                 local command=$(echo $message_text | awk '{print $1}')
@@ -105,8 +131,7 @@ handle_telegram_commands() {
                             send_telegram_message "$enabled_services"
                             ;;
                         /list_vms)
-                            local vm_list=$(qm list)
-                            send_telegram_message "$vm_list"
+                            monitor_vms
                             ;;
                         /start_vm)
                             local vm_id=$args
@@ -118,6 +143,12 @@ handle_telegram_commands() {
                             qm stop $vm_id
                             send_telegram_message "VM $vm_id stopped on server $SERVER_ID."
                             ;;
+                        /restart_vm)
+                            local vm_id=$args
+                            qm stop $vm_id
+                            qm start $vm_id
+                            send_telegram_message "VM $vm_id restarted on server $SERVER_ID."
+                            ;;
                         /sudo)
                             local sudo_command=$(echo $message_text | cut -d' ' -f3-)
                             local result=$(sudo $sudo_command 2>&1)
@@ -128,6 +159,38 @@ handle_telegram_commands() {
                             ;;
                     esac
                 fi
+            elif [ "$callback_query_id" != "" ]; then
+                local callback_command=$(echo $callback_data | awk '{print $1}')
+                local callback_args=$(echo $callback_data | cut -d' ' -f2-)
+                case $callback_command in
+                    /status_vm)
+                        local vm_id=$callback_args
+                        local status=$(qm status $vm_id)
+                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                            -d callback_query_id="$callback_query_id" \
+                            -d text="$status"
+                        ;;
+                    /start_vm)
+                        local vm_id=$callback_args
+                        qm start $vm_id
+                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                            -d callback_query_id="$callback_query_id" \
+                            -d text="VM $vm_id started."
+                        ;;
+                    /restart_vm)
+                        local vm_id=$callback_args
+                        qm stop $vm_id
+                        qm start $vm_id
+                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                            -d callback_query_id="$callback_query_id" \
+                            -d text="VM $vm_id restarted."
+                        ;;
+                    *)
+                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                            -d callback_query_id="$callback_query_id" \
+                            -d text="Unknown command."
+                        ;;
+                esac
             fi
 
             last_update_id=$(($update_id + 1))
