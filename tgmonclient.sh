@@ -217,7 +217,7 @@ EOF
                     case $callback_command in
                         /status_vm)
                             local vm_id=$callback_args
-                            local status=$(qm status $vm_id)
+                            local status=$(qm status $vm_id 2>&1)
                             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -d callback_query_id="$callback_query_id" \
                                 -d text="$status"
