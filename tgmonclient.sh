@@ -75,16 +75,15 @@ monitor_services() {
 
 # Функция для мониторинга виртуальных машин
 monitor_vms() {
-    local vms=$(qm list --output-format json)
-    local vms_status=$(echo $vms | jq -r '.[] | "\(.vmid): \(.name) (\(.status))"')
+    local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
     local buttons=""
 
-    for vm in $vms_status; do
-        local vm_id=$(echo $vm | cut -d: -f1)
-        local vm_name=$(echo $vm | cut -d: -f2 | awk '{print $1}')
+    while read -r vm; do
+        local vm_id=$(echo $vm | awk '{print $1}')
+        local vm_name=$(echo $vm | awk '{print $2}')
         local status=$(echo $vm | awk '{print $3}')
 
-        if [ "$status" != "(running)" ]; then
+        if [ "$status" != "running" ]; then
             send_telegram_message "VM $vm is not running on server $SERVER_ID!"
         fi
 
@@ -102,7 +101,7 @@ EOF
 )
         buttons=$(echo $inline_keyboard | jq -c .)
         send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
-    done
+    done <<< "$vms"
 }
 
 # Основной цикл мониторинга
