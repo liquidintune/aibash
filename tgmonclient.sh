@@ -211,36 +211,39 @@ EOF
                 fi
             elif [ "$callback_query_id" != "" ]; then
                 local callback_command=$(echo $callback_data | awk '{print $1}')
-                local callback_args=$(echo $callback_data | cut -d' ' -f2-)
-                case $callback_command in
-                    /status_vm)
-                        local vm_id=$(echo $callback_args | awk '{print $2}')
-                        local status=$(qm status $vm_id)
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="$status"
-                        ;;
-                    /start_vm)
-                        local vm_id=$(echo $callback_args | awk '{print $2}')
-                        qm start $vm_id
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="VM $vm_id started."
-                        ;;
-                    /restart_vm)
-                        local vm_id=$(echo $callback_args | awk '{print $2}')
-                        qm stop $vm_id
-                        qm start $vm_id
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="VM $vm_id restarted."
-                        ;;
-                    *)
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="Unknown command."
-                        ;;
-                esac
+                local callback_server_id=$(echo $callback_data | awk '{print $2}')
+                local callback_args=$(echo $callback_data | cut -d' ' -f3-)
+                if [ "$callback_server_id" == "$SERVER_ID" ]; then
+                    case $callback_command in
+                        /status_vm)
+                            local vm_id=$callback_args
+                            local status=$(qm status $vm_id)
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="$status"
+                            ;;
+                        /start_vm)
+                            local vm_id=$callback_args
+                            qm start $vm_id
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="VM $vm_id started."
+                            ;;
+                        /restart_vm)
+                            local vm_id=$callback_args
+                            qm stop $vm_id
+                            qm start $vm_id
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="VM $vm_id restarted."
+                            ;;
+                        *)
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="Unknown command."
+                            ;;
+                    esac
+                fi
             fi
 
             last_update_id=$(($update_id + 1))
