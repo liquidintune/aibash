@@ -53,6 +53,10 @@ else
     source ~/.telegram_bot_config
 fi
 
+# Переменные для хранения предыдущих состояний
+declare -A previous_service_statuses
+declare -A previous_vm_statuses
+
 # Функция для отправки сообщений в Telegram
 send_telegram_message() {
     local message=$1
@@ -73,8 +77,12 @@ send_telegram_message() {
 monitor_services() {
     local services=($(echo $SERVICES_TO_MONITOR | tr ',' ' '))
     for service in "${services[@]}"; do
-        if ! systemctl is-active --quiet $service; then
-            send_telegram_message "Service $service is not running on server $SERVER_ID!"
+        local current_status=$(systemctl is-active $service)
+        if [ "${previous_service_statuses[$service]}" != "$current_status" ]; then
+            previous_service_statuses[$service]=$current_status
+            if [ "$current_status" != "active" ]; then
+                send_telegram_message "Service $service is not running on server $SERVER_ID!"
+            fi
         fi
     done
 }
@@ -82,18 +90,19 @@ monitor_services() {
 # Функция для мониторинга виртуальных машин
 monitor_vms() {
     local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-    local buttons=""
 
     while read -r vm; do
         local vm_id=$(echo $vm | awk '{print $1}')
         local vm_name=$(echo $vm | awk '{print $2}')
         local status=$(echo $vm | awk '{print $3}')
 
-        if [ "$status" != "running" ]; then
-            send_telegram_message "VM $vm is not running on server $SERVER_ID!"
-        fi
+        if [ "${previous_vm_statuses[$vm_id]}" != "$status" ]; then
+            previous_vm_statuses[$vm_id]=$status
+            if [ "$status" != "running" ]; then
+                send_telegram_message "VM $vm is not running on server $SERVER_ID!"
+            fi
 
-        local inline_keyboard=$(cat <<EOF
+            local inline_keyboard=$(cat <<EOF
 {
     "inline_keyboard": [
         [
@@ -105,8 +114,9 @@ monitor_vms() {
 }
 EOF
 )
-        buttons=$(echo $inline_keyboard | jq -c .)
-        send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
+            local buttons=$(echo $inline_keyboard | jq -c .)
+            send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
+        fi
     done <<< "$vms"
 }
 
@@ -153,12 +163,12 @@ handle_telegram_commands() {
                     local help_message=$(cat <<EOF
 Available commands:
 /server_id - Show the server ID.
-/list_enabled_services - List all enabled services.
-/list_vms - List all virtual machines.
-/start_vm <vm_id> - Start a virtual machine.
-/stop_vm <vm_id> - Stop a virtual machine.
-/restart_vm <vm_id> - Restart a virtual machine.
-/sudo <command> - Execute a command with sudo privileges.
+/list_enabled_services <server_id> - List all enabled services.
+/list_vms <server_id> - List all virtual machines.
+/start_vm <server_id> <vm_id> - Start a virtual machine.
+/stop_vm <server_id> <vm_id> - Stop a virtual machine.
+/restart_vm <server_id> <vm_id> - Restart a virtual machine.
+/sudo <server_id> <command> - Execute a command with sudo privileges.
 
 To get the status, start or restart a VM, use the buttons provided with the VM list.
 EOF
@@ -174,17 +184,17 @@ EOF
                             monitor_vms
                             ;;
                         /start_vm)
-                            local vm_id=$args
+                            local vm_id=$(echo $args | awk '{print $1}')
                             qm start $vm_id
                             send_telegram_message "VM $vm_id started on server $SERVER_ID."
                             ;;
                         /stop_vm)
-                            local vm_id=$args
+                            local vm_id=$(echo $args | awk '{print $1}')
                             qm stop $vm_id
                             send_telegram_message "VM $vm_id stopped on server $SERVER_ID."
                             ;;
                         /restart_vm)
-                            local vm_id=$args
+                            local vm_id=$(echo $args | awk '{print $1}')
                             qm stop $vm_id
                             qm start $vm_id
                             send_telegram_message "VM $vm_id restarted on server $SERVER_ID."
@@ -204,21 +214,21 @@ EOF
                 local callback_args=$(echo $callback_data | cut -d' ' -f2-)
                 case $callback_command in
                     /status_vm)
-                        local vm_id=$callback_args
+                        local vm_id=$(echo $callback_args | awk '{print $2}')
                         local status=$(qm status $vm_id)
                         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                             -d callback_query_id="$callback_query_id" \
                             -d text="$status"
                         ;;
                     /start_vm)
-                        local vm_id=$callback_args
+                        local vm_id=$(echo $callback_args | awk '{print $2}')
                         qm start $vm_id
                         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                             -d callback_query_id="$callback_query_id" \
                             -d text="VM $vm_id started."
                         ;;
                     /restart_vm)
-                        local vm_id=$callback_args
+                        local vm_id=$(echo $callback_args | awk '{print $2}')
                         qm stop $vm_id
                         qm start $vm_id
                         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
