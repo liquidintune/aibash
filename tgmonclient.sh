@@ -20,8 +20,25 @@ install_packages() {
     fi
 }
 
+# Функция для определения типа сервера
+determine_server_type() {
+    if dpkg -l | grep -q pve-manager; then
+        echo "Proxmox"
+    else
+        echo "LNMP"
+    fi
+}
+
 # Установка пакетов
 install_packages
+
+# Определение типа сервера и установка набора сервисов для мониторинга
+SERVER_TYPE=$(determine_server_type)
+if [ "$SERVER_TYPE" == "Proxmox" ]; then
+    DEFAULT_SERVICES_TO_MONITOR="pve-cluster,pvedaemon,qemu-server,pveproxy"
+else
+    DEFAULT_SERVICES_TO_MONITOR="nginx,mysql,php7.4-fpm"
+fi
 
 # Запрос конфигурации у пользователя
 if [ ! -f ~/.telegram_bot_config ]; then
@@ -31,6 +48,7 @@ if [ ! -f ~/.telegram_bot_config ]; then
     echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN" > ~/.telegram_bot_config
     echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID" >> ~/.telegram_bot_config
     echo "SERVER_ID=$SERVER_ID" >> ~/.telegram_bot_config
+    echo "SERVICES_TO_MONITOR=$DEFAULT_SERVICES_TO_MONITOR" >> ~/.telegram_bot_config
 else
     source ~/.telegram_bot_config
 fi
@@ -47,7 +65,7 @@ send_telegram_message() {
 
 # Функция для мониторинга сервисов systemd
 monitor_services() {
-    local services=("pve-cluster" "pvedaemon" "qemu-server" "pveproxy")
+    local services=($(echo $SERVICES_TO_MONITOR | tr ',' ' '))
     for service in "${services[@]}"; do
         if ! systemctl is-active --quiet $service; then
             send_telegram_message "Service $service is not running on server $SERVER_ID!"
@@ -91,7 +109,9 @@ EOF
 monitoring_loop() {
     while true; do
         monitor_services
-        monitor_vms
+        if [ "$SERVER_TYPE" == "Proxmox" ]; then
+            monitor_vms
+        fi
         sleep 60
     done
 }
