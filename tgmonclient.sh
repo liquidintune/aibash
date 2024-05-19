@@ -57,10 +57,16 @@ fi
 send_telegram_message() {
     local message=$1
     local buttons=$2
-    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-        -d chat_id="$TELEGRAM_CHAT_ID" \
-        -d text="$message" \
-        -d reply_markup="$buttons"
+    if [ -z "$buttons" ]; then
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d text="$message"
+    else
+        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id="$TELEGRAM_CHAT_ID" \
+            -d text="$message" \
+            -d reply_markup="$buttons"
+    fi
 }
 
 # Функция для мониторинга сервисов systemd
@@ -143,6 +149,21 @@ handle_telegram_commands() {
 
                 if [ "$command" == "/server_id" ]; then
                     send_telegram_message "Server ID: $SERVER_ID"
+                elif [ "$command" == "/help" ]; then
+                    local help_message=$(cat <<EOF
+Available commands:
+/server_id - Show the server ID.
+/list_enabled_services - List all enabled services.
+/list_vms - List all virtual machines.
+/start_vm <vm_id> - Start a virtual machine.
+/stop_vm <vm_id> - Stop a virtual machine.
+/restart_vm <vm_id> - Restart a virtual machine.
+/sudo <command> - Execute a command with sudo privileges.
+
+To get the status, start or restart a VM, use the buttons provided with the VM list.
+EOF
+)
+                    send_telegram_message "$help_message"
                 elif [ "$cmd_server_id" == "$SERVER_ID" ]; then
                     case $command in
                         /list_enabled_services)
@@ -170,7 +191,7 @@ handle_telegram_commands() {
                             ;;
                         /sudo)
                             local sudo_command=$(echo $message_text | cut -d' ' -f3-)
-                            local result=$(sudo $sudo_command 2>&1)
+                            local result=$($sudo_command 2>&1)
                             send_telegram_message "$result"
                             ;;
                         *)
