@@ -166,33 +166,103 @@ handle_telegram_commands() {
         command=$(echo $update | jq -r '.message.text')
         chat_id=$(echo $update | jq -r '.message.chat.id')
         
-        if echo "$command" | grep -q "^/$SERVER_ID"; then
-            local actual_command=${command#*/$SERVER_ID }
-            
-            case $actual_command in
-                server_id)
-                    send_telegram_message "Server ID: $SERVER_ID"
-                    ;;
-                help)
-                    send_telegram_message "Available commands: /$SERVER_ID server_id, /$SERVER_ID help, /$SERVER_ID list_enabled_services, /$SERVER_ID list_vms, /$SERVER_ID status_vm, /$SERVER_ID start_vm, /$SERVER_ID stop_vm, /$SERVER_ID restart_vm, /$SERVER_ID status_service, /$SERVER_ID start_service, /$SERVER_ID stop_service, /$SERVER_ID restart_service, /$SERVER_ID sudo"
-                    ;;
-                list_enabled_services)
+        case $command in
+            /server_id)
+                send_telegram_message "Server ID: $SERVER_ID"
+                ;;
+            /help)
+                send_telegram_message "Available commands: /server_id, /help, /list_enabled_services <server_id>, /list_vms <server_id>, /status_vm <server_id> <vm_id>, /start_vm <server_id> <vm_id>, /stop_vm <server_id> <vm_id>, /restart_vm <server_id> <vm_id>, /status_service <server_id> <service>, /start_service <server_id> <service>, /stop_service <server_id> <service>, /restart_service <server_id> <service>, /sudo <server_id> <command>"
+                ;;
+            /list_enabled_services\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     services=$(systemctl list-units --type=service --state=running | awk '{print $1}')
                     send_telegram_message "Enabled services on server $SERVER_ID:\n$services"
-                    ;;
-                list_vms)
-                    if [ "$SERVER_TYPE" = "Proxmox" ]; then
-                        vms=$(qm list)
-                        send_telegram_message "VMs on server $SERVER_ID:\n$vms"
-                    else
-                        send_telegram_message "Command not supported on this server type."
-                    fi
-                    ;;
-                *)
-                    send_telegram_message "Unknown command."
-                    ;;
-            esac
-        fi
+                fi
+                ;;
+            /list_vms\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                    vms=$(qm list)
+                    send_telegram_message "VMs on server $SERVER_ID:\n$vms"
+                fi
+                ;;
+            /status_vm\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                vm_id=$(echo $command | awk '{print $3}')
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                    status=$(qm status $vm_id | awk '{print $2}')
+                    send_telegram_message "VM $vm_id on server $SERVER_ID is $status"
+                fi
+                ;;
+            /start_vm\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                vm_id=$(echo $command | awk '{print $3}')
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                    qm start $vm_id
+                    send_telegram_message "VM $vm_id on server $SERVER_ID started"
+                fi
+                ;;
+            /stop_vm\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                vm_id=$(echo $command | awk '{print $3}')
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                    qm stop $vm_id
+                    send_telegram_message "VM $vm_id on server $SERVER_ID stopped"
+                fi
+                ;;
+            /restart_vm\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                vm_id=$(echo $command | awk '{print $3}')
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                    qm restart $vm_id
+                    send_telegram_message "VM $vm_id on server $SERVER_ID restarted"
+                fi
+                ;;
+            /status_service\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                service=$(echo $command | awk '{print $3}')
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                    status=$(systemctl is-active $service)
+                    send_telegram_message "Service $service on server $SERVER_ID is $status"
+                fi
+                ;;
+            /start_service\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                service=$(echo $command | awk '{print $3}')
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                    systemctl start $service
+                    send_telegram_message "Service $service on server $SERVER_ID started"
+                fi
+                ;;
+            /stop_service\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                service=$(echo $command | awk '{print $3}')
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                    systemctl stop $service
+                    send_telegram_message "Service $service on server $SERVER_ID stopped"
+                fi
+                ;;
+            /restart_service\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                service=$(echo $command | awk '{print $3}')
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                    systemctl restart $service
+                    send_telegram_message "Service $service on server $SERVER_ID restarted"
+                fi
+                ;;
+            /sudo\ *)
+                target_server_id=$(echo $command | awk '{print $2}')
+                cmd=$(echo $command | cut -d' ' -f3-)
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                    output=$(sudo bash -c "$cmd")
+                    send_telegram_message "Command '$cmd' executed on server $SERVER_ID. Output:\n$output"
+                fi
+                ;;
+            *)
+                send_telegram_message "Unknown command."
+                ;;
+        esac
     done
 }
 
@@ -201,7 +271,9 @@ monitoring_loop() {
     while true; do
         if [ "$SERVER_TYPE" = "Proxmox" ]; then
             monitor_vms
-        else
+        fi
+
+        if [ "$SERVER_TYPE" != "Proxmox" ]; then
             monitor_services
         fi
 
