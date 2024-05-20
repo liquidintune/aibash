@@ -61,16 +61,33 @@ declare -A previous_vm_statuses
 send_telegram_message() {
     local message=$1
     local buttons=$2
-    if [ -z "$buttons" ]; then
-        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            -d chat_id="$TELEGRAM_CHAT_ID" \
-            -d text="$message"
-    else
-        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            -d chat_id="$TELEGRAM_CHAT_ID" \
-            -d text="$message" \
-            -d reply_markup="$buttons"
-    fi
+    local response
+    local retry_after
+
+    while true; do
+        if [ -z "$buttons" ]; then
+            response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+                -d chat_id="$TELEGRAM_CHAT_ID" \
+                -d text="$message")
+        else
+            response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+                -d chat_id="$TELEGRAM_CHAT_ID" \
+                -d text="$message" \
+                -d reply_markup="$buttons")
+        fi
+
+        local ok=$(echo "$response" | jq '.ok')
+        if [ "$ok" == "true" ]; then
+            break
+        else
+            retry_after=$(echo "$response" | jq '.parameters.retry_after')
+            if [ -n "$retry_after" ] && [ "$retry_after" != "null" ]; then
+                sleep "$retry_after"
+            else
+                sleep 1
+            fi
+        fi
+    done
 }
 
 # Функция для мониторинга сервисов systemd
@@ -217,7 +234,7 @@ EOF
                     case $callback_command in
                         /status_vm)
                             local vm_id=$callback_args
-                            local status=$(qm status $vm_id 2>&1)
+                            local status=$(qm status $vm_id)
                             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -d callback_query_id="$callback_query_id" \
                                 -d text="$status"
