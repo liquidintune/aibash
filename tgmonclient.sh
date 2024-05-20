@@ -274,14 +274,18 @@ EOF
                                 send_telegram_message "$help_message"
                                 ;;
                             /list_enabled_services)
-                                local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager)
-                                local inline_keyboard=$(jq -n --argjson services "$(echo "$services" | awk 'NR>1 {print "{\"text\": \""$1"\", \"callback_data\": \"/service_actions "$SERVER_ID" "$1"\"},"}' | jq -s .)")
+                                local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager | awk 'NR>1 {print $1}')
+                                local inline_keyboard=$(jq -n \
+                                    --argjson services "$(echo "$services" | jq -R -s -c 'split("\n") | map(select(length > 0) | {text: ., callback_data: "/service_actions '$SERVER_ID' " + .})')" \
+                                    '{inline_keyboard: [[$services]]}')
                                 send_telegram_message "Enabled services on server $SERVER_ID:" "$inline_keyboard"
                                 ;;
                             /list_vms)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                                    local inline_keyboard=$(jq -n --argjson vms "$(echo "$vms" | awk '{print "{\"text\": \""$2" ("$1")\", \"callback_data\": \"/vm_actions "$SERVER_ID" "$1"\"},"}' | jq -s .)")
+                                    local inline_keyboard=$(jq -n \
+                                        --argjson vms "$(echo "$vms" | awk '{print $2 " (" $1 ")", "/vm_actions '$SERVER_ID' " $1}' | jq -R -s -c 'split("\n") | map(select(length > 0) | {text: .[0], callback_data: .[1]})')" \
+                                        '{inline_keyboard: [[$vms]]}')
                                     send_telegram_message "Virtual machines on server $SERVER_ID:" "$inline_keyboard"
                                 else
                                     send_telegram_message "Error: This command is only available for Proxmox servers."
