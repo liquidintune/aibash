@@ -262,11 +262,7 @@ handle_telegram_commands() {
 
                 if [ "$command" == "/server_id" ]; then
                     send_telegram_message "Server ID: $SERVER_ID"
-                elif [ -z "$cmd_server_id" ]; then
-                    send_telegram_message "Error: server_id must be specified for this command."
-                elif [ "$cmd_server_id" != "$SERVER_ID" ]; then
-                    send_telegram_message "Error: Command not for this server."
-                else
+                elif [ "$cmd_server_id" == "$SERVER_ID" ]; then
                     case $command in
                         /help)
                             local help_message=$(cat <<EOF
