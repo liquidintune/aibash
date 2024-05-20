@@ -2,6 +2,7 @@
 
 set -e
 
+# Функция для установки необходимых пакетов
 install_packages() {
     if [[ -f /etc/debian_version ]]; then
         if ! command -v jq &> /dev/null; then
@@ -19,6 +20,7 @@ install_packages() {
     fi
 }
 
+# Функция для определения типа сервера
 determine_server_type() {
     if dpkg -l | grep -q pve-manager; then
         echo "Proxmox"
@@ -27,9 +29,10 @@ determine_server_type() {
     fi
 }
 
+# Проверка и завершение старого процесса
 check_and_kill_old_process() {
     local pid_file="/var/run/telegram_bot.pid"
-
+    
     if [[ -f "$pid_file" ]]; then
         old_pid=$(cat "$pid_file")
         if ps -p "$old_pid" > /dev/null 2>&1; then
@@ -37,10 +40,11 @@ check_and_kill_old_process() {
             kill -9 "$old_pid"
         fi
     fi
-
+    
     echo $$ > "$pid_file"
 }
 
+# Удаление PID файла при завершении
 cleanup() {
     local pid_file="/var/run/telegram_bot.pid"
     if [[ -f "$pid_file" ]]; then
@@ -48,10 +52,13 @@ cleanup() {
     fi
 }
 
+# Установка пакетов
 install_packages
 
+# Проверка и завершение старого процесса
 check_and_kill_old_process
 
+# Определение типа сервера и установка набора сервисов для мониторинга
 SERVER_TYPE=$(determine_server_type)
 if [ "$SERVER_TYPE" == "Proxmox" ]; then
     DEFAULT_SERVICES_TO_MONITOR="pve-cluster,pvedaemon,qemu-server,pveproxy"
@@ -59,6 +66,7 @@ else
     DEFAULT_SERVICES_TO_MONITOR="nginx,mysql,php7.4-fpm"
 fi
 
+# Запрос конфигурации у пользователя
 if [ ! -f ~/.telegram_bot_config ]; then
     read -p "Enter Telegram bot token: " TELEGRAM_BOT_TOKEN
     read -p "Enter Telegram group chat ID: " TELEGRAM_CHAT_ID
@@ -71,9 +79,11 @@ else
     source ~/.telegram_bot_config
 fi
 
+# Переменные для хранения предыдущих состояний
 declare -A previous_service_statuses
 declare -A previous_vm_statuses
 
+# Функция для отправки сообщений в Telegram
 send_telegram_message() {
     local message=$1
     local buttons=$2
@@ -106,6 +116,7 @@ send_telegram_message() {
     done
 }
 
+# Функция для мониторинга сервисов systemd
 monitor_services() {
     local services=($(echo $SERVICES_TO_MONITOR | tr ',' ' '))
     for service in "${services[@]}"; do
@@ -120,10 +131,10 @@ monitor_services() {
 {
     "inline_keyboard": [
         [
-            {
-                "text": "$service",
-                "callback_data": "/service_menu $SERVER_ID $service"
-            }
+            {"text": "Status", "callback_data": "/status_service $SERVER_ID $service"},
+            {"text": "Start", "callback_data": "/start_service $SERVER_ID $service"},
+            {"text": "Stop", "callback_data": "/stop_service $SERVER_ID $service"},
+            {"text": "Restart", "callback_data": "/restart_service $SERVER_ID $service"}
         ]
     ]
 }
@@ -135,6 +146,7 @@ EOF
     done
 }
 
+# Функция для мониторинга виртуальных машин
 monitor_vms() {
     local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
 
@@ -153,10 +165,10 @@ monitor_vms() {
 {
     "inline_keyboard": [
         [
-            {
-                "text": "$vm_name ($vm_id)",
-                "callback_data": "/vm_menu $SERVER_ID $vm_id"
-            }
+            {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
+            {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
+            {"text": "Stop", "callback_data": "/stop_vm $SERVER_ID $vm_id"},
+            {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
         ]
     ]
 }
@@ -168,50 +180,8 @@ EOF
     done <<< "$vms"
 }
 
-service_menu() {
-    local server_id=$1
-    local service=$2
-
-    local inline_keyboard=$(cat <<EOF
-{
-    "inline_keyboard": [
-        [
-            {"text": "Status", "callback_data": "/status_service $server_id $service"},
-            {"text": "Start", "callback_data": "/start_service $server_id $service"},
-            {"text": "Stop", "callback_data": "/stop_service $server_id $service"},
-            {"text": "Restart", "callback_data": "/restart_service $server_id $service"}
-        ]
-    ]
-}
-EOF
-)
-    local buttons=$(echo $inline_keyboard | jq -c .)
-    send_telegram_message "Service menu for $service:" "$buttons"
-}
-
-vm_menu() {
-    local server_id=$1
-    local vm_id=$2
-
-    local inline_keyboard=$(cat <<EOF
-{
-    "inline_keyboard": [
-        [
-            {"text": "Status", "callback_data": "/status_vm $server_id $vm_id"},
-            {"text": "Start", "callback_data": "/start_vm $server_id $vm_id"},
-            {"text": "Stop", "callback_data": "/stop_vm $server_id $vm_id"},
-            {"text": "Restart", "callback_data": "/restart_vm $server_id $vm_id"}
-        ]
-    ]
-}
-EOF
-)
-    local buttons=$(echo $inline_keyboard | jq -c .)
-    send_telegram_message "VM menu for $vm_id:" "$buttons"
-}
-
+# Основной цикл мониторинга
 monitoring_loop() {
-    send_telegram_message "Monitoring script has been launched on server $SERVER_ID"
     while true; do
         monitor_services
         if [ "$SERVER_TYPE" == "Proxmox" ]; then
@@ -221,6 +191,7 @@ monitoring_loop() {
     done
 }
 
+# Функция для обработки команд из Telegram
 handle_telegram_commands() {
     local last_update_id=0
 
@@ -385,12 +356,6 @@ EOF
                                 -d callback_query_id="$callback_query_id" \
                                 -d text="Service $service restarted."
                             ;;
-                        /service_menu)
-                            service_menu $callback_server_id $callback_args
-                            ;;
-                        /vm_menu)
-                            vm_menu $callback_server_id $callback_args
-                            ;;
                         *)
                             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -d callback_query_id="$callback_query_id" \
@@ -407,7 +372,9 @@ EOF
     done
 }
 
+# Установка обработки сигнала завершения для очистки PID файла
 trap cleanup EXIT
 
+# Запуск обработки команд и мониторинга
 handle_telegram_commands &
-monitoring_loop &
+monitoring_loop
