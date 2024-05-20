@@ -113,7 +113,7 @@ monitor_vms() {
         local vm_name=$(echo $vm | awk '{print $2}')
         local status=$(echo $vm | awk '{print $3}')
 
-        if [ "$status" != "running" ]; then
+        if [ "$status" != "running" ];then
             send_telegram_message "VM $vm is not running on server $SERVER_ID!"
         fi
 
@@ -173,23 +173,28 @@ handle_telegram_commands() {
 
                 if [ "$command" == "/server_id" ]; then
                     send_telegram_message "Server ID: $SERVER_ID"
-                elif [ "$command" == "/help" ]; then
-                    local help_message=$(cat <<EOF
+                elif [ -z "$cmd_server_id" ]; then
+                    send_telegram_message "Error: server_id must be specified for this command."
+                elif [ "$cmd_server_id" != "$SERVER_ID" ]; then
+                    send_telegram_message "Error: Command not for this server."
+                else
+                    case $command in
+                        /help)
+                            local help_message=$(cat <<EOF
 Available commands:
 /server_id - Show the server ID.
-/list_enabled_services - List all enabled services.
-/list_vms - List all virtual machines.
-/start_vm <vm_id> - Start a virtual machine.
-/stop_vm <vm_id> - Stop a virtual machine.
-/restart_vm <vm_id> - Restart a virtual machine.
-/sudo <command> - Execute a command with sudo privileges.
+/list_enabled_services <server_id> - List all enabled services.
+/list_vms <server_id> - List all virtual machines.
+/start_vm <server_id> <vm_id> - Start a virtual machine.
+/stop_vm <server_id> <vm_id> - Stop a virtual machine.
+/restart_vm <server_id> <vm_id> - Restart a virtual machine.
+/sudo <server_id> <command> - Execute a command with sudo privileges.
 
 To get the status, start or restart a VM, use the buttons provided with the VM list.
 EOF
 )
-                    send_telegram_message "$help_message"
-                elif [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                    case $command in
+                            send_telegram_message "$help_message"
+                            ;;
                         /list_enabled_services)
                             local enabled_services=$(systemctl list-unit-files --type=service --state=enabled)
                             send_telegram_message "$enabled_services"
@@ -198,25 +203,41 @@ EOF
                             monitor_vms
                             ;;
                         /start_vm)
-                            local vm_id=$args
-                            qm start $vm_id
-                            send_telegram_message "VM $vm_id started on server $SERVER_ID."
+                            local vm_id=$(echo $args | awk '{print $1}')
+                            if [ -z "$vm_id" ]; then
+                                send_telegram_message "Error: vm_id must be specified."
+                            else
+                                qm start $vm_id
+                                send_telegram_message "VM $vm_id started on server $SERVER_ID."
+                            fi
                             ;;
                         /stop_vm)
-                            local vm_id=$args
-                            qm stop $vm_id
-                            send_telegram_message "VM $vm_id stopped on server $SERVER_ID."
+                            local vm_id=$(echo $args | awk '{print $1}')
+                            if [ -z "$vm_id" ]; then
+                                send_telegram_message "Error: vm_id must be specified."
+                            else
+                                qm stop $vm_id
+                                send_telegram_message "VM $vm_id stopped on server $SERVER_ID."
+                            fi
                             ;;
                         /restart_vm)
-                            local vm_id=$args
-                            qm stop $vm_id
-                            qm start $vm_id
-                            send_telegram_message "VM $vm_id restarted on server $SERVER_ID."
+                            local vm_id=$(echo $args | awk '{print $1}')
+                            if [ -z "$vm_id" ]; then
+                                send_telegram_message "Error: vm_id must be specified."
+                            else
+                                qm stop $vm_id
+                                qm start $vm_id
+                                send_telegram_message "VM $vm_id restarted on server $SERVER_ID."
+                            fi
                             ;;
                         /sudo)
-                            local sudo_command=$(echo $message_text | cut -d' ' -f3-)
-                            local result=$($sudo_command 2>&1)
-                            send_telegram_message "$result"
+                            local sudo_command=$(echo $args)
+                            if [ -z "$sudo_command" ]; then
+                                send_telegram_message "Error: command must be specified."
+                            else
+                                local result=$($sudo_command 2>&1)
+                                send_telegram_message "$result"
+                            fi
                             ;;
                         *)
                             send_telegram_message "Unknown command: $message_text"
@@ -225,7 +246,16 @@ EOF
                 fi
             elif [ "$callback_query_id" != "" ]; then
                 local callback_command=$(echo $callback_data | awk '{print $1}')
-                local callback_args=$(echo $callback_data | cut -d' ' -f2-)
+                local callback_server_id=$(echo $callback_data | awk '{print $2}')
+                local callback_args=$(echo $callback_data | cut -d' ' -f3-)
+                
+                if [ "$callback_server_id" != "$SERVER_ID" ]; then
+                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                        -d callback_query_id="$callback_query_id" \
+                        -d text="Error: Command not for this server."
+                    continue
+                fi
+
                 case $callback_command in
                     /status_vm)
                         local vm_id=$callback_args
