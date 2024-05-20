@@ -291,16 +291,26 @@ EOF
                         /list_vms)
                             if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                 local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                                local vm_status=""
-
                                 while read -r vm; do
                                     local vm_id=$(echo $vm | awk '{print $1}')
                                     local vm_name=$(echo $vm | awk '{print $2}')
                                     local status=$(echo $vm | awk '{print $3}')
-                                    vm_status+="$vm_name ($vm_id) - $status\n"
-                                done <<< "$vms"
 
-                                send_telegram_message "$vm_status"
+                                    local inline_keyboard=$(cat <<EOF
+{
+    "inline_keyboard": [
+        [
+            {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
+            {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
+            {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
+        ]
+    ]
+}
+EOF
+)
+                                    buttons=$(echo $inline_keyboard | jq -c .)
+                                    send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
+                                done <<< "$vms"
                             else
                                 send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
