@@ -103,21 +103,22 @@ monitor_services() {
     done
 }
 
-# Функция для мониторинга виртуальных машин
+# Функция для мониторинга виртуальных машин (только для Proxmox)
 monitor_vms() {
-    local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-    local buttons=""
+    if [ "$SERVER_TYPE" == "Proxmox" ]; then
+        local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
+        local buttons=""
 
-    while read -r vm; do
-        local vm_id=$(echo $vm | awk '{print $1}')
-        local vm_name=$(echo $vm | awk '{print $2}')
-        local status=$(echo $vm | awk '{print $3}')
+        while read -r vm; do
+            local vm_id=$(echo $vm | awk '{print $1}')
+            local vm_name=$(echo $vm | awk '{print $2}')
+            local status=$(echo $vm | awk '{print $3}')
 
-        if [ "$status" != "running" ];then
-            send_telegram_message "VM $vm is not running on server $SERVER_ID!"
-        fi
+            if [ "$status" != "running" ]; then
+                send_telegram_message "VM $vm is not running on server $SERVER_ID!"
+            fi
 
-        local inline_keyboard=$(cat <<EOF
+            local inline_keyboard=$(cat <<EOF
 {
     "inline_keyboard": [
         [
@@ -129,9 +130,10 @@ monitor_vms() {
 }
 EOF
 )
-        buttons=$(echo $inline_keyboard | jq -c .)
-        send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
-    done <<< "$vms"
+            buttons=$(echo $inline_keyboard | jq -c .)
+            send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
+        done <<< "$vms"
+    fi
 }
 
 # Основной цикл мониторинга
@@ -184,10 +186,10 @@ handle_telegram_commands() {
 Available commands:
 /server_id - Show the server ID.
 /list_enabled_services <server_id> - List all enabled services.
-/list_vms <server_id> - List all virtual machines.
-/start_vm <server_id> <vm_id> - Start a virtual machine.
-/stop_vm <server_id> <vm_id> - Stop a virtual machine.
-/restart_vm <server_id> <vm_id> - Restart a virtual machine.
+/list_vms <server_id> - List all virtual machines (Proxmox only).
+/start_vm <server_id> <vm_id> - Start a virtual machine (Proxmox only).
+/stop_vm <server_id> <vm_id> - Stop a virtual machine (Proxmox only).
+/restart_vm <server_id> <vm_id> - Restart a virtual machine (Proxmox only).
 /sudo <server_id> <command> - Execute a command with sudo privileges.
 
 To get the status, start or restart a VM, use the buttons provided with the VM list.
@@ -200,34 +202,50 @@ EOF
                             send_telegram_message "$enabled_services"
                             ;;
                         /list_vms)
-                            monitor_vms
+                            if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                monitor_vms
+                            else
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
+                            fi
                             ;;
                         /start_vm)
-                            local vm_id=$(echo $args | awk '{print $1}')
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
+                            if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                local vm_id=$(echo $args | awk '{print $1}')
+                                if [ -z "$vm_id" ]; then
+                                    send_telegram_message "Error: vm_id must be specified."
+                                else
+                                    qm start $vm_id
+                                    send_telegram_message "VM $vm_id started on server $SERVER_ID."
+                                fi
                             else
-                                qm start $vm_id
-                                send_telegram_message "VM $vm_id started on server $SERVER_ID."
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
                             ;;
                         /stop_vm)
-                            local vm_id=$(echo $args | awk '{print $1}')
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
+                            if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                local vm_id=$(echo $args | awk '{print $1}')
+                                if [ -z "$vm_id" ]; then
+                                    send_telegram_message "Error: vm_id must be specified."
+                                else
+                                    qm stop $vm_id
+                                    send_telegram_message "VM $vm_id stopped on server $SERVER_ID."
+                                fi
                             else
-                                qm stop $vm_id
-                                send_telegram_message "VM $vm_id stopped on server $SERVER_ID."
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
                             ;;
                         /restart_vm)
-                            local vm_id=$(echo $args | awk '{print $1}')
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
+                            if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                local vm_id=$(echo $args | awk '{print $1}')
+                                if [ -z "$vm_id" ]; then
+                                    send_telegram_message "Error: vm_id must be specified."
+                                else
+                                    qm stop $vm_id
+                                    qm start $vm_id
+                                    send_telegram_message "VM $vm_id restarted on server $SERVER_ID."
+                                fi
                             else
-                                qm stop $vm_id
-                                qm start $vm_id
-                                send_telegram_message "VM $vm_id restarted on server $SERVER_ID."
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
                             ;;
                         /sudo)
@@ -235,7 +253,7 @@ EOF
                             if [ -z "$sudo_command" ]; then
                                 send_telegram_message "Error: command must be specified."
                             else
-                                local result=$($sudo_command 2>&1)
+                                local result=$(sudo $sudo_command 2>&1)
                                 send_telegram_message "$result"
                             fi
                             ;;
@@ -258,26 +276,44 @@ EOF
 
                 case $callback_command in
                     /status_vm)
-                        local vm_id=$callback_args
-                        local status=$(qm status $vm_id)
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="$status"
+                        if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                            local vm_id=$callback_args
+                            local status=$(qm status $vm_id)
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="$status"
+                        else
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="Error: This command is only available for Proxmox servers."
+                        fi
                         ;;
                     /start_vm)
-                        local vm_id=$callback_args
-                        qm start $vm_id
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="VM $vm_id started."
+                        if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                            local vm_id=$callback_args
+                            qm start $vm_id
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="VM $vm_id started."
+                        else
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="Error: This command is only available for Proxmox servers."
+                        fi
                         ;;
                     /restart_vm)
-                        local vm_id=$callback_args
-                        qm stop $vm_id
-                        qm start $vm_id
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="VM $vm_id restarted."
+                        if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                            local vm_id=$callback_args
+                            qm stop $vm_id
+                            qm start $vm_id
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="VM $vm_id restarted."
+                        else
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="Error: This command is only available for Proxmox servers."
+                        fi
                         ;;
                     *)
                         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
