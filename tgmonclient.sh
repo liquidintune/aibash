@@ -388,6 +388,7 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="$status"
+                                    send_telegram_message "Status of VM $vm_id on server $SERVER_ID: $status"
                                     log "Handled status_vm for $vm_id: $status"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
@@ -403,6 +404,7 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id started.\n$result"
+                                    send_telegram_message "Started VM $vm_id on server $SERVER_ID: $result"
                                     log "Handled start_vm for $vm_id: $result"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
@@ -418,6 +420,7 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id stopped.\n$result"
+                                    send_telegram_message "Stopped VM $vm_id on server $SERVER_ID: $result"
                                     log "Handled stop_vm for $vm_id: $result"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
@@ -434,6 +437,7 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id restarted.\nStop result: $result_stop\nStart result: $result_start"
+                                    send_telegram_message "Restarted VM $vm_id on server $SERVER_ID:\nStop result: $result_stop\nStart result: $result_start"
                                     log "Handled restart_vm for $vm_id: Stop result: $result_stop, Start result: $result_start"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
