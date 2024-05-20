@@ -6,6 +6,8 @@ CONFIG_FILE="$HOME/.telegram_bot_config"
 SECRET_FILE="$HOME/.telegram_bot_secret"
 STATUS_FILE="/tmp/monitoring_status"
 VM_STATUS_FILE="/tmp/vm_monitoring_status"
+VM_INITIALIZED=false
+SERVICES_INITIALIZED=false
 
 # Функция для логирования
 log() {
@@ -162,12 +164,16 @@ monitor_services() {
 
     if $status_changed; then
         echo "$current_status" > "$STATUS_FILE"
-        for service in "${services[@]}"; do
-            if ! systemctl is-active --quiet $service; then
-                send_telegram_message "Service $service is not running on server $SERVER_ID!"
-            fi
-        done
+        if $SERVICES_INITIALIZED; then
+            for service in "${services[@]}"; do
+                if ! systemctl is-active --quiet $service; then
+                    send_telegram_message "Service $service is not running on server $SERVER_ID!"
+                fi
+            done
+        fi
     fi
+
+    SERVICES_INITIALIZED=true
 }
 
 # Функция для мониторинга виртуальных машин (только для Proxmox)
@@ -197,16 +203,17 @@ monitor_vms() {
 
         if $status_changed; then
             echo "$current_status" > "$VM_STATUS_FILE"
-            while read -r vm; do
-                local vm_id=$(echo $vm | awk '{print $1}')
-                local vm_name=$(echo $vm | awk '{print $2}')
-                local status=$(echo $vm | awk '{print $3}')
+            if $VM_INITIALIZED; then
+                while read -r vm; do
+                    local vm_id=$(echo $vm | awk '{print $1}')
+                    local vm_name=$(echo $vm | awk '{print $2}')
+                    local status=$(echo $vm | awk '{print $3}')
 
-                if [ "$status" != "running" ]; then
-                    send_telegram_message "VM $vm is not running on server $SERVER_ID!"
-                fi
+                    if [ "$status" != "running" ]; then
+                        send_telegram_message "VM $vm is not running on server $SERVER_ID!"
+                    fi
 
-                local inline_keyboard=$(cat <<EOF
+                    local inline_keyboard=$(cat <<EOF
 {
     "inline_keyboard": [
         [
@@ -218,11 +225,14 @@ monitor_vms() {
 }
 EOF
 )
-                buttons=$(echo $inline_keyboard | jq -c .)
-                send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
-            done <<< "$vms"
+                    buttons=$(echo $inline_keyboard | jq -c .)
+                    send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
+                done <<< "$vms"
+            fi
         fi
     fi
+
+    VM_INITIALIZED=true
 }
 
 # Основной цикл мониторинга
@@ -292,7 +302,27 @@ EOF
                             ;;
                         /list_vms)
                             if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                monitor_vms
+                                local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
+                                while read -r vm; do
+                                    local vm_id=$(echo $vm | awk '{print $1}')
+                                    local vm_name=$(echo $vm | awk '{print $2}')
+                                    local status=$(echo $vm | awk '{print $3}')
+
+                                    local inline_keyboard=$(cat <<EOF
+{
+    "inline_keyboard": [
+        [
+            {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
+            {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
+            {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
+        ]
+    ]
+}
+EOF
+)
+                                    buttons=$(echo $inline_keyboard | jq -c .)
+                                    send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
+                                done <<< "$vms"
                             else
                                 send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
