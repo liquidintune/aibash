@@ -267,7 +267,7 @@ handle_telegram_commands() {
             /restart_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ];len
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     systemctl restart $service
                     send_telegram_message "Сервис $service на сервере $SERVER_ID перезапущен"
                 fi
