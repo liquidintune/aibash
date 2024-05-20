@@ -102,16 +102,16 @@ monitor_services() {
             prev_status=$(grep "$service" "$PREV_SERVICE_STATUSES" | cut -d' ' -f2)
             if [ "$status" != "$prev_status" ]; then
                 if [ "$status" = "active" ]; then
-                    send_telegram_message "🟢 Service $service is active on server $SERVER_ID"
+                    send_telegram_message "🟢 Сервис $service активен на сервере $SERVER_ID"
                 else
-                    send_telegram_message "🔴 Service $service is inactive on server $SERVER_ID"
+                    send_telegram_message "🔴 Сервис $service не активен на сервере $SERVER_ID"
                 fi
             fi
         else
             if [ "$status" = "active" ]; then
-                send_telegram_message "🟢 Service $service is active on server $SERVER_ID"
+                send_telegram_message "🟢 Сервис $service активен на сервере $SERVER_ID"
             else
-                send_telegram_message "🔴 Service $service is inactive on server $SERVER_ID"
+                send_telegram_message "🔴 Сервис $service не активен на сервере $SERVER_ID"
             fi
         fi
     done
@@ -135,18 +135,18 @@ monitor_vms() {
 
             if [ -f "$PREV_VM_STATUSES" ]; then
                 prev_status=$(grep "$vm" "$PREV_VM_STATUSES" | cut -d' ' -f2)
-                if [ "$status" != "$prev_status" ]; then
+                if [ "$status" != "$prev_status" ];len
                     if [ "$status" = "running" ]; then
-                        send_telegram_message "🟢 VM $vm is running on server $SERVER_ID"
+                        send_telegram_message "🟢 ВМ $vm запущена на сервере $SERVER_ID"
                     else
-                        send_telegram_message "🔴 VM $vm is not running on server $SERVER_ID"
+                        send_telegram_message "🔴 ВМ $vm не запущена на сервере $SERVER_ID"
                     fi
                 fi
             else
                 if [ "$status" = "running" ]; then
-                    send_telegram_message "🟢 VM $vm is running on server $SERVER_ID"
+                    send_telegram_message "🟢 ВМ $vm запущена на сервере $SERVER_ID"
                 else
-                    send_telegram_message "🔴 VM $vm is not running on server $SERVER_ID"
+                    send_telegram_message "🔴 ВМ $vm не запущена на сервере $SERVER_ID"
                 fi
             fi
         done
@@ -161,28 +161,50 @@ monitor_vms() {
 
 # Обработка команд из Telegram
 handle_telegram_commands() {
-    updates=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates")
+    local last_update_id=0
+    if [ -f "/tmp/last_update_id" ]; then
+        last_update_id=$(cat /tmp/last_update_id)
+    fi
+
+    updates=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates?offset=$((last_update_id + 1))")
     echo $updates | jq -c '.result[]' | while read update; do
+        update_id=$(echo $update | jq -r '.update_id')
         command=$(echo $update | jq -r '.message.text')
         chat_id=$(echo $update | jq -r '.message.chat.id')
-        
+
+        last_update_id=$update_id
+        echo $last_update_id > /tmp/last_update_id
+
         case $command in
             /server_id)
                 send_telegram_message "Server ID: $SERVER_ID"
                 ;;
             /help)
-                send_telegram_message "Available commands: /server_id, /help, /list_enabled_services <server_id>, /list_vms <server_id>, /status_vm <server_id> <vm_id>, /start_vm <server_id> <vm_id>, /stop_vm <server_id> <vm_id>, /restart_vm <server_id> <vm_id>, /status_service <server_id> <service>, /start_service <server_id> <service>, /stop_service <server_id> <service>, /restart_service <server_id> <service>, /sudo <server_id> <command>"
+                send_telegram_message "Доступные команды:
+<code>/server_id</code> - показать уникальный идентификатор сервера.
+<code>/help</code> - показать список доступных команд.
+<code>/list_enabled_services <server_id></code> - показать список включенных сервисов на сервере.
+<code>/list_vms <server_id></code> - показать список виртуальных машин (только для Proxmox).
+<code>/status_vm <server_id> <vm_id></code> - показать статус виртуальной машины (только для Proxmox).
+<code>/start_vm <server_id> <vm_id></code> - запустить виртуальную машину (только для Proxmox).
+<code>/stop_vm <server_id> <vm_id></code> - остановить виртуальную машину (только для Proxmox).
+<code>/restart_vm <server_id> <vm_id></code> - перезапустить виртуальную машину (только для Proxmox).
+<code>/status_service <server_id> <service></code> - показать статус сервиса.
+<code>/start_service <server_id> <service></code> - запустить сервис.
+<code>/stop_service <server_id> <service></code> - остановить сервис.
+<code>/restart_service <server_id> <service></code> - перезапустить сервис.
+<code>/sudo <server_id> <command></code> - выполнить команду с правами суперпользователя."
                 ;;
             /list_enabled_services\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     services=$(systemctl list-units --type=service --state=running | awk '{print $1}')
                     send_telegram_message "Enabled services on server $SERVER_ID:\n$services"
                 fi
                 ;;
             /list_vms\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
-                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ];len
                     vms=$(qm list)
                     send_telegram_message "VMs on server $SERVER_ID:\n$vms"
                 fi
@@ -190,7 +212,7 @@ handle_telegram_commands() {
             /status_vm\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 vm_id=$(echo $command | awk '{print $3}')
-                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ];len
                     status=$(qm status $vm_id | awk '{print $2}')
                     send_telegram_message "VM $vm_id on server $SERVER_ID is $status"
                 fi
@@ -198,7 +220,7 @@ handle_telegram_commands() {
             /start_vm\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 vm_id=$(echo $command | awk '{print $3}')
-                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ];len
                     qm start $vm_id
                     send_telegram_message "VM $vm_id on server $SERVER_ID started"
                 fi
@@ -206,7 +228,7 @@ handle_telegram_commands() {
             /stop_vm\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 vm_id=$(echo $command | awk '{print $3}')
-                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ];len
                     qm stop $vm_id
                     send_telegram_message "VM $vm_id on server $SERVER_ID stopped"
                 fi
@@ -214,7 +236,7 @@ handle_telegram_commands() {
             /restart_vm\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 vm_id=$(echo $command | awk '{print $3}')
-                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ];len
                     qm restart $vm_id
                     send_telegram_message "VM $vm_id on server $SERVER_ID restarted"
                 fi
@@ -222,7 +244,7 @@ handle_telegram_commands() {
             /status_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     status=$(systemctl is-active $service)
                     send_telegram_message "Service $service on server $SERVER_ID is $status"
                 fi
@@ -230,7 +252,7 @@ handle_telegram_commands() {
             /start_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     systemctl start $service
                     send_telegram_message "Service $service on server $SERVER_ID started"
                 fi
@@ -238,7 +260,7 @@ handle_telegram_commands() {
             /stop_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     systemctl stop $service
                     send_telegram_message "Service $service on server $SERVER_ID stopped"
                 fi
@@ -246,7 +268,7 @@ handle_telegram_commands() {
             /restart_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     systemctl restart $service
                     send_telegram_message "Service $service on server $SERVER_ID restarted"
                 fi
@@ -254,7 +276,7 @@ handle_telegram_commands() {
             /sudo\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 cmd=$(echo $command | cut -d' ' -f3-)
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     output=$(sudo bash -c "$cmd")
                     send_telegram_message "Command '$cmd' executed on server $SERVER_ID. Output:\n$output"
                 fi
@@ -269,11 +291,11 @@ handle_telegram_commands() {
 # Основной цикл мониторинга
 monitoring_loop() {
     while true; do
-        if [ "$SERVER_TYPE" = "Proxmox" ]; then
+        if [ "$SERVER_TYPE" = "Proxmox" ];len
             monitor_vms
         fi
 
-        if [ "$SERVER_TYPE" != "Proxmox" ]; then
+        if [ "$SERVER_TYPE" != "Proxmox" ];len
             monitor_services
         fi
 
