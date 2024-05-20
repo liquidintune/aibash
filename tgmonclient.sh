@@ -180,19 +180,19 @@ handle_telegram_commands() {
                 send_telegram_message "Server ID: $SERVER_ID"
                 ;;
             /help)
-                send_telegram_message "Доступные команды:\n
-<code>/server_id</code> - показать уникальный идентификатор сервера.\n
-<code>/help</code> - показать список доступных команд.\n
-<code>/list_enabled_services <server_id></code> - показать список включенных сервисов на сервере.\n
-<code>/list_vms <server_id></code> - показать список виртуальных машин (только для Proxmox).\n
-<code>/status_vm <server_id> <vm_id></code> - показать статус виртуальной машины (только для Proxmox).\n
-<code>/start_vm <server_id> <vm_id></code> - запустить виртуальную машину (только для Proxmox).\n
-<code>/stop_vm <server_id> <vm_id></code> - остановить виртуальную машину (только для Proxmox).\n
-<code>/restart_vm <server_id> <vm_id></code> - перезапустить виртуальную машину (только для Proxmox).\n
-<code>/status_service <server_id> <service></code> - показать статус сервиса.\n
-<code>/start_service <server_id> <service></code> - запустить сервис.\n
-<code>/stop_service <server_id> <service></code> - остановить сервис.\n
-<code>/restart_service <server_id> <service></code> - перезапустить сервис.\n
+                send_telegram_message "Доступные команды:
+<code>/server_id</code> - показать уникальный идентификатор сервера.
+<code>/help</code> - показать список доступных команд.
+<code>/list_enabled_services <server_id></code> - показать список включенных сервисов на сервере.
+<code>/list_vms <server_id></code> - показать список виртуальных машин (только для Proxmox).
+<code>/status_vm <server_id> <vm_id></code> - показать статус виртуальной машины (только для Proxmox).
+<code>/start_vm <server_id> <vm_id></code> - запустить виртуальную машину (только для Proxmox).
+<code>/stop_vm <server_id> <vm_id></code> - остановить виртуальную машину (только для Proxmox).
+<code>/restart_vm <server_id> <vm_id></code> - перезапустить виртуальную машину (только для Proxmox).
+<code>/status_service <server_id> <service></code> - показать статус сервиса.
+<code>/start_service <server_id> <service></code> - запустить сервис.
+<code>/stop_service <server_id> <service></code> - остановить сервис.
+<code>/restart_service <server_id> <service></code> - перезапустить сервис.
 <code>/sudo <server_id> <command></code> - выполнить команду с правами суперпользователя."
                 ;;
             /list_enabled_services\ *)
@@ -214,7 +214,7 @@ handle_telegram_commands() {
                 vm_id=$(echo $command | awk '{print $3}')
                 if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
                     status=$(qm status $vm_id | awk '{print $2}')
-                    send_telegram_message "Виртуальная машина $vm_id на сервере $SERVER_ID имеет статус: $status"
+                    send_telegram_message "ВМ $vm_id на сервере $SERVER_ID имеет статус $status"
                 fi
                 ;;
             /start_vm\ *)
@@ -222,7 +222,7 @@ handle_telegram_commands() {
                 vm_id=$(echo $command | awk '{print $3}')
                 if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
                     qm start $vm_id
-                    send_telegram_message "Виртуальная машина $vm_id на сервере $SERVER_ID запущена"
+                    send_telegram_message "ВМ $vm_id на сервере $SERVER_ID запущена"
                 fi
                 ;;
             /stop_vm\ *)
@@ -230,7 +230,7 @@ handle_telegram_commands() {
                 vm_id=$(echo $command | awk '{print $3}')
                 if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
                     qm stop $vm_id
-                    send_telegram_message "Виртуальная машина $vm_id на сервере $SERVER_ID остановлена"
+                    send_telegram_message "ВМ $vm_id на сервере $SERVER_ID остановлена"
                 fi
                 ;;
             /restart_vm\ *)
@@ -238,7 +238,7 @@ handle_telegram_commands() {
                 vm_id=$(echo $command | awk '{print $3}')
                 if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
                     qm restart $vm_id
-                    send_telegram_message "Виртуальная машина $vm_id на сервере $SERVER_ID перезапущена"
+                    send_telegram_message "ВМ $vm_id на сервере $SERVER_ID перезапущена"
                 fi
                 ;;
             /status_service\ *)
@@ -246,7 +246,7 @@ handle_telegram_commands() {
                 service=$(echo $command | awk '{print $3}')
                 if [ "$target_server_id" = "$SERVER_ID" ]; then
                     status=$(systemctl is-active $service)
-                    send_telegram_message "Сервис $service на сервере $SERVER_ID имеет статус: $status"
+                    send_telegram_message "Сервис $service на сервере $SERVER_ID имеет статус $status"
                 fi
                 ;;
             /start_service\ *)
@@ -293,9 +293,7 @@ monitoring_loop() {
     while true; do
         if [ "$SERVER_TYPE" = "Proxmox" ]; then
             monitor_vms
-        fi
-
-        if [ "$SERVER_TYPE" != "Proxmox" ]; then
+        else
             monitor_services
         fi
 
