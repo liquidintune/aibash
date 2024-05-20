@@ -210,6 +210,7 @@ monitor_vms() {
         [
             {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
             {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
+            {"text": "Stop", "callback_data": "/stop_vm $SERVER_ID $vm_id"},
             {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
         ]
     ]
@@ -275,7 +276,7 @@ Available commands:
 /restart_vm <server_id> <vm_id> - Restart a virtual machine (Proxmox only).
 /sudo <server_id> <command> - Execute a command with sudo privileges.
 
-To get the status, start or restart a VM, use the buttons provided with the VM list.
+To get the status, start, stop or restart a VM, use the buttons provided with the VM list.
 EOF
 )
                             send_telegram_message "$help_message"
@@ -298,6 +299,7 @@ EOF
         [
             {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
             {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
+            {"text": "Stop", "callback_data": "/stop_vm $SERVER_ID $vm_id"},
             {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
         ]
     ]
@@ -398,6 +400,19 @@ EOF
                             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -d callback_query_id="$callback_query_id" \
                                 -d text="VM $vm_id started.\n$result"
+                        else
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="Error: This command is only available for Proxmox servers."
+                        fi
+                        ;;
+                    /stop_vm)
+                        if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                            local vm_id=$callback_args
+                            local result=$(qm stop $vm_id 2>&1)
+                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                                -d callback_query_id="$callback_query_id" \
+                                -d text="VM $vm_id stopped.\n$result"
                         else
                             curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -d callback_query_id="$callback_query_id" \
