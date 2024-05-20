@@ -79,14 +79,26 @@ configure_telegram() {
 # Настройка конфигурации
 configure_telegram
 
-# Функция для отправки сообщений в Telegram
+# Функция для отправки сообщений в Telegram с обработкой ошибок
 send_telegram_message() {
     local message=$1
     local buttons=$2
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
+    local max_length=4096
+
+    # Функция для отправки HTTP запроса
+    send_request() {
+        local text=$1
+        local data
+        if [ -z "$buttons" ]; then
+            data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" '{chat_id: $chat_id, text: $text}')
+        else
+            data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" --argjson reply_markup "$buttons" '{chat_id: $chat_id, text: $text, reply_markup: $reply_markup}')
+        fi
+        curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data"
+    }
 
     # Разбиваем сообщение на части, если оно слишком длинное
-    local max_length=4096
     if [ ${#message} -gt $max_length ]; then
         local parts=()
         while [ ${#message} -gt $max_length ]; do
@@ -96,20 +108,31 @@ send_telegram_message() {
         parts+=("$message")
 
         for part in "${parts[@]}"; do
-            if [ -z "$buttons" ]; then
-                curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$part"
-            else
-                curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$part" -d reply_markup="$buttons"
-            fi
+            local response=$(send_request "$part")
             log "Sent part of a long message to Telegram"
+            handle_response "$response"
         done
     else
-        if [ -z "$buttons" ]; then
-            curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message"
-        else
-            curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message" -d reply_markup="$buttons"
-        fi
+        local response=$(send_request "$message")
         log "Sent message to Telegram: $message"
+        handle_response "$response"
+    fi
+}
+
+# Функция для обработки ответа от Telegram API
+handle_response() {
+    local response=$1
+    local ok=$(echo "$response" | jq -r '.ok')
+    if [ "$ok" != "true" ]; then
+        local error_code=$(echo "$response" | jq -r '.error_code')
+        if [ "$error_code" == "429" ]; then
+            local retry_after=$(echo "$response" | jq -r '.parameters.retry_after')
+            log "Received Too Many Requests error. Retrying after $retry_after seconds."
+            sleep "$retry_after"
+            send_telegram_message "$message" "$buttons"
+        else
+            log "Error sending message: $response"
+        fi
     fi
 }
 
@@ -344,11 +367,11 @@ EOF
                         if [ "$SERVER_TYPE" == "Proxmox" ]; then
                             local vm_id=$callback_args
                             local status=$(qm status $vm_id)
-                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                            curl -с -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -д callback_query_id="$callback_query_id" \
                                 -д text="$status"
                         else
-                            curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
+                            curl -с -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                 -д callback_query_id="$callback_query_id" \
                                 -д text="Error: This command is only available for Proxmox servers."
                         fi
