@@ -2,7 +2,7 @@
 
 set -e
 
-# Функция для определения операционной системы и установки необходимых пакетов
+# Функция для установки необходимых пакетов
 install_packages() {
     if [[ -f /etc/debian_version ]]; then
         if ! command -v jq &> /dev/null; then
@@ -29,8 +29,34 @@ determine_server_type() {
     fi
 }
 
+# Проверка и завершение старого процесса
+check_and_kill_old_process() {
+    local pid_file="/var/run/telegram_bot.pid"
+    
+    if [[ -f "$pid_file" ]]; then
+        old_pid=$(cat "$pid_file")
+        if ps -p "$old_pid" > /dev/null 2>&1; then
+            echo "Killing old process with PID $old_pid"
+            kill -9 "$old_pid"
+        fi
+    fi
+    
+    echo $$ > "$pid_file"
+}
+
+# Удаление PID файла при завершении
+cleanup() {
+    local pid_file="/var/run/telegram_bot.pid"
+    if [[ -f "$pid_file" ]]; then
+        rm "$pid_file"
+    fi
+}
+
 # Установка пакетов
 install_packages
+
+# Проверка и завершение старого процесса
+check_and_kill_old_process
 
 # Определение типа сервера и установка набора сервисов для мониторинга
 SERVER_TYPE=$(determine_server_type)
@@ -206,20 +232,20 @@ Available commands:
 /stop_service <server_id> <service> - Stop a service.
 /restart_service <server_id> <service> - Restart a service.
 /status_service <server_id> <service> - Get the status of a service.
-/sudo <server_id> <command> - Execute a command with sudo privileges.
-
-To get the status, start or restart a VM or service, use the buttons provided with the VM or service list.
+/sudo <server_id> <command> - Execute a command with sudo.
+Please use <server_id> to target a specific server.
 EOF
 )
                     send_telegram_message "$help_message"
                 elif [ "$cmd_server_id" == "$SERVER_ID" ]; then
                     case $command in
                         /list_enabled_services)
-                            local enabled_services=$(systemctl list-unit-files --type=service --state=enabled)
-                            send_telegram_message "$enabled_services"
+                            local enabled_services=$(systemctl list-unit-files | grep enabled | awk '{print $1}')
+                            send_telegram_message "Enabled services:\n$enabled_services"
                             ;;
                         /list_vms)
-                            monitor_vms
+                            local vms=$(qm list)
+                            send_telegram_message "Virtual machines:\n$vms"
                             ;;
                         /start_vm)
                             local vm_id=$(echo $args | awk '{print $1}')
@@ -346,6 +372,9 @@ EOF
     done
 }
 
+# Установка обработки сигнала завершения для очистки PID файла
+trap cleanup EXIT
+
 # Запуск обработки команд и мониторинга
 handle_telegram_commands &
-monitoring_loop
+monitoring_loop &
