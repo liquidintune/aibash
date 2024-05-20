@@ -9,7 +9,7 @@ VM_STATUS_FILE="/tmp/vm_monitoring_status"
 
 # Функция для логирования
 log() {
-    local message=$1
+    local message="$1"
     echo "$(date +'%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
 }
 
@@ -82,14 +82,14 @@ configure_telegram
 
 # Функция для отправки сообщений в Telegram с обработкой ошибок
 send_telegram_message() {
-    local message=$1
-    local buttons=$2
+    local message="$1"
+    local buttons="$2"
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
     local max_length=4096
 
     # Функция для отправки HTTP запроса
     send_request() {
-        local text=$1
+        local text="$1"
         local data
         if [ -z "$buttons" ]; then
             data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" '{chat_id: $chat_id, text: $text}')
@@ -122,7 +122,7 @@ send_telegram_message() {
 
 # Функция для обработки ответа от Telegram API
 handle_response() {
-    local response=$1
+    local response="$1"
     local ok=$(echo "$response" | jq -r '.ok')
     if [ "$ok" != "true" ]; then
         local error_code=$(echo "$response" | jq -r '.error_code')
@@ -144,7 +144,7 @@ monitor_services() {
     local current_status=""
 
     for service in "${services[@]}"; do
-        if systemctl is-active --quiet $service; then
+        if systemctl is-active --quiet "$service"; then
             current_status+="$service:active;"
         else
             current_status+="$service:inactive;"
@@ -163,7 +163,7 @@ monitor_services() {
     if $status_changed; then
         echo "$current_status" > "$STATUS_FILE"
         for service in "${services[@]}"; do
-            if ! systemctl is-active --quiet $service; then
+            if ! systemctl is-active --quiet "$service"; then
                 send_telegram_message "Service $service is not running on server $SERVER_ID!"
             fi
         done
@@ -178,9 +178,9 @@ monitor_vms() {
         local current_status=""
 
         while read -r vm; do
-            local vm_id=$(echo $vm | awk '{print $1}')
-            local vm_name=$(echo $vm | awk '{print $2}')
-            local status=$(echo $vm | awk '{print $3}')
+            local vm_id=$(echo "$vm" | awk '{print $1}')
+            local vm_name=$(echo "$vm" | awk '{print $2}')
+            local status=$(echo "$vm" | awk '{print $3}')
             current_status+="$vm_id:$status;"
 
             if [ -f "$VM_STATUS_FILE" ]; then
@@ -196,9 +196,9 @@ monitor_vms() {
         if $status_changed; then
             echo "$current_status" > "$VM_STATUS_FILE"
             while read -r vm; do
-                local vm_id=$(echo $vm | awk '{print $1}')
-                local vm_name=$(echo $vm | awk '{print $2}')
-                local status=$(echo $vm | awk '{print $3}')
+                local vm_id=$(echo "$vm" | awk '{print $1}')
+                local vm_name=$(echo "$vm" | awk '{print $2}')
+                local status=$(echo "$vm" | awk '{print $3}')
 
                 if [ "$status" != "running" ]; then
                     send_telegram_message "VM $vm is not running on server $SERVER_ID!"
@@ -217,7 +217,7 @@ monitor_vms() {
 }
 EOF
 )
-                buttons=$(echo $inline_keyboard | jq -c .)
+                buttons=$(echo "$inline_keyboard" | jq -c .)
                 send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
             done <<< "$vms"
         fi
@@ -241,11 +241,11 @@ handle_telegram_commands() {
 
     while true; do
         local response=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates?offset=$last_update_id")
-        local updates=$(echo $response | jq '.result')
+        local updates=$(echo "$response" | jq '.result')
 
         for row in $(echo "${updates}" | jq -r '.[] | @base64'); do
             _jq() {
-                echo ${row} | base64 --decode | jq -r ${1}
+                echo "$row" | base64 --decode | jq -r "$1"
             }
 
             local update_id=$(_jq '.update_id')
@@ -256,11 +256,11 @@ handle_telegram_commands() {
             local message_id=$(_jq '.callback_query.message.message_id')
             local from_id=$(_jq '.callback_query.from.id')
 
-            if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ];then
+            if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
                 if [ -n "$message_text" ]; then
-                    local command=$(echo $message_text | awk '{print $1}')
-                    local cmd_server_id=$(echo $message_text | awk '{print $2}')
-                    local args=$(echo $message_text | cut -d' ' -f3-)
+                    local command=$(echo "$message_text" | awk '{print $1}')
+                    local cmd_server_id=$(echo "$message_text" | awk '{print $2}')
+                    local args=$(echo "$message_text" | cut -d' ' -f3-)
 
                     if [ "$command" == "/server_id" ]; then
                         send_telegram_message "Server ID: $SERVER_ID"
@@ -290,9 +290,9 @@ EOF
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
                                     while read -r vm; do
-                                        local vm_id=$(echo $vm | awk '{print $1}')
-                                        local vm_name=$(echo $vm | awk '{print $2}')
-                                        local status=$(echo $vm | awk '{print $3}')
+                                        local vm_id=$(echo "$vm" | awk '{print $1}')
+                                        local vm_name=$(echo "$vm" | awk '{print $2}')
+                                        local status=$(echo "$vm" | awk '{print $3}')
 
                                         local inline_keyboard=$(cat <<EOF
 {
@@ -307,7 +307,7 @@ EOF
 }
 EOF
 )
-                                        buttons=$(echo $inline_keyboard | jq -c .)
+                                        buttons=$(echo "$inline_keyboard" | jq -c .)
                                         send_telegram_message "$vm_name ($vm_id) - $status" "$buttons"
                                     done <<< "$vms"
                                 else
@@ -316,11 +316,11 @@ EOF
                                 ;;
                             /start_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$(echo $args | awk '{print $1}')
+                                    local vm_id=$(echo "$args" | awk '{print $1}')
                                     if [ -z "$vm_id" ]; then
                                         send_telegram_message "Error: vm_id must be specified."
                                     else
-                                        local result=$(qm start $vm_id 2>&1)
+                                        local result=$(qm start "$vm_id" 2>&1)
                                         send_telegram_message "VM $vm_id started on server $SERVER_ID.\n$result"
                                     fi
                                 else
@@ -329,11 +329,11 @@ EOF
                                 ;;
                             /stop_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$(echo $args | awk '{print $1}')
+                                    local vm_id=$(echo "$args" | awk '{print $1}')
                                     if [ -z "$vm_id" ]; then
                                         send_telegram_message "Error: vm_id must be specified."
                                     else
-                                        local result=$(qm stop $vm_id 2>&1)
+                                        local result=$(qm stop "$vm_id" 2>&1)
                                         send_telegram_message "VM $vm_id stopped on server $SERVER_ID.\n$result"
                                     fi
                                 else
@@ -342,12 +342,12 @@ EOF
                                 ;;
                             /restart_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$(echo $args | awk '{print $1}')
+                                    local vm_id=$(echo "$args" | awk '{print $1}')
                                     if [ -z "$vm_id" ]; then
                                         send_telegram_message "Error: vm_id must be specified."
                                     else
-                                        local result_stop=$(qm stop $vm_id 2>&1)
-                                        local result_start=$(qm start $vm_id 2>&1)
+                                        local result_stop=$(qm stop "$vm_id" 2>&1)
+                                        local result_start=$(qm start "$vm_id" 2>&1)
                                         send_telegram_message "VM $vm_id restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
                                     fi
                                 else
@@ -355,11 +355,11 @@ EOF
                                 fi
                                 ;;
                             /sudo)
-                                local sudo_command=$(echo $args)
+                                local sudo_command=$(echo "$args")
                                 if [ -z "$sudo_command" ]; then
                                     send_telegram_message "Error: command must be specified."
                                 else
-                                    local result=$(sudo $sudo_command 2>&1)
+                                    local result=$(sudo "$sudo_command" 2>&1)
                                     send_telegram_message "$result"
                                 fi
                                 ;;
@@ -369,16 +369,16 @@ EOF
                         esac
                     fi
                 elif [ -n "$callback_data" ]; then
-                    local callback_command=$(echo $callback_data | awk '{print $1}')
-                    local callback_server_id=$(echo $callback_data | awk '{print $2}')
-                    local callback_args=$(echo $callback_data | cut -d' ' -f3-)
+                    local callback_command=$(echo "$callback_data" | awk '{print $1}')
+                    local callback_server_id=$(echo "$callback_data" | awk '{print $2}')
+                    local callback_args=$(echo "$callback_data" | cut -d' ' -f3-)
                     
                     if [ "$callback_server_id" == "$SERVER_ID" ]; then
                         case $callback_command in
                             /status_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$callback_args
-                                    local status=$(qm status $vm_id 2>&1)
+                                    local vm_id="$callback_args"
+                                    local status=$(qm status "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="$status"
@@ -392,8 +392,8 @@ EOF
                                 ;;
                             /start_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$callback_args
-                                    local result=$(qm start $vm_id 2>&1)
+                                    local vm_id="$callback_args"
+                                    local result=$(qm start "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id started.\n$result"
@@ -407,8 +407,8 @@ EOF
                                 ;;
                             /stop_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$callback_args
-                                    local result=$(qm stop $vm_id 2>&1)
+                                    local vm_id="$callback_args"
+                                    local result=$(qm stop "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id stopped.\n$result"
@@ -422,9 +422,9 @@ EOF
                                 ;;
                             /restart_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id=$callback_args
-                                    local result_stop=$(qm stop $vm_id 2>&1)
-                                    local result_start=$(qm start $vm_id 2>&1)
+                                    local vm_id="$callback_args"
+                                    local result_stop=$(qm stop "$vm_id" 2>&1)
+                                    local result_start=$(qm start "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id restarted.\nStop result: $result_stop\nStart result: $result_start"
