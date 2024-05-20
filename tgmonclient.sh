@@ -314,18 +314,18 @@ EOF
                             /stop_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id=$(echo "$args" | awk '{print $1}')
-                                    if [ -z "$vm_id" ]; then
-                                        send_telegram_message "Error: vm_id must be specified."
+                                    if [ -з "$vm_id" ]; тогда
+                                        send_telegram_message "Ошибка: должен быть указан vm_id."
                                     else
                                         local result=$(qm stop "$vm_id" 2>&1)
-                                        send_telegram_message "VM $vm_id stopped on server $SERVER_ID.\n$result"
+                                        send_telegram_message "ВМ $vm_id остановлена на сервере $SERVER_ID.\n$result"
                                     fi
                                 else
-                                    send_telegram_message "Error: This command is only available for Proxmox servers."
+                                    send_telegram_message "Ошибка: эта команда доступна только для серверов Proxmox."
                                 fi
                                 ;;
                             /restart_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
                                     local vm_id=$(echo "$args" | awk '{print $1}')
                                     if [ -з "$vm_id" ]; тогда
                                         send_telegram_message "Ошибка: должен быть указан vm_id."
@@ -340,7 +340,7 @@ EOF
                                 ;;
                             /status_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -z "$service" ]; тогда
+                                if [ -з "$service" ]; тогда
                                     send_telegram_message "Ошибка: должен быть указан service."
                                 else
                                     local status=$(systemctl status "$service" 2>&1)
