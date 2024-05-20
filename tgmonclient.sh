@@ -382,10 +382,12 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="$status"
+                                    log "Handled status_vm for $vm_id: $status"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="Error: This command is only available for Proxmox servers."
+                                    log "Error: status_vm command is only available for Proxmox servers."
                                 fi
                                 ;;
                             /start_vm)
@@ -395,10 +397,12 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id started.\n$result"
+                                    log "Handled start_vm for $vm_id: $result"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="Error: This command is only available for Proxmox servers."
+                                    log "Error: start_vm command is only available for Proxmox servers."
                                 fi
                                 ;;
                             /stop_vm)
@@ -408,10 +412,12 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id stopped.\n$result"
+                                    log "Handled stop_vm for $vm_id: $result"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="Error: This command is only available for Proxmox servers."
+                                    log "Error: stop_vm command is only available for Proxmox servers."
                                 fi
                                 ;;
                             /restart_vm)
@@ -422,22 +428,26 @@ EOF
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="VM $vm_id restarted.\nStop result: $result_stop\nStart result: $result_start"
+                                    log "Handled restart_vm for $vm_id: Stop result: $result_stop, Start result: $result_start"
                                 else
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                         -d callback_query_id="$callback_query_id" \
                                         -d text="Error: This command is only available for Proxmox servers."
+                                    log "Error: restart_vm command is only available for Proxmox servers."
                                 fi
                                 ;;
                             *)
                                 curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                                     -d callback_query_id="$callback_query_id" \
                                     -d text="Unknown command."
+                                log "Unknown command: $callback_data"
                                 ;;
                         esac
                     else
                         curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
                             -d callback_query_id="$callback_query_id" \
                             -d text="Error: Command not for this server."
+                        log "Error: Command not for this server. Callback data: $callback_data"
                     fi
                 fi
             fi
