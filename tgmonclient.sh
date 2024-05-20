@@ -83,14 +83,33 @@ send_telegram_message() {
     local message=$1
     local buttons=$2
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
-    
-    if [ -z "$buttons" ]; then
-        curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message"
+
+    # Разбиваем сообщение на части, если оно слишком длинное
+    local max_length=4096
+    if [ ${#message} -gt $max_length ]; then
+        local parts=()
+        while [ ${#message} -gt $max_length ]; do
+            parts+=("${message:0:$max_length}")
+            message="${message:$max_length}"
+        done
+        parts+=("$message")
+
+        for part in "${parts[@]}"; do
+            if [ -z "$buttons" ]; then
+                curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$part"
+            else
+                curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$part" -d reply_markup="$buttons"
+            fi
+            log "Sent part of a long message to Telegram"
+        done
     else
-        curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message" -d reply_markup="$buttons"
+        if [ -z "$buttons" ]; then
+            curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message"
+        else
+            curl -s -X POST "$api_url" -d chat_id="$TELEGRAM_CHAT_ID" -d text="$message" -d reply_markup="$buttons"
+        fi
+        log "Sent message to Telegram: $message"
     fi
-    
-    log "Sent message to Telegram: $message"
 }
 
 # Функция для мониторинга сервисов systemd
