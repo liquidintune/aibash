@@ -281,7 +281,7 @@ EOF
                             /list_vms)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                                    local inline_keyboard=$(echo "$vms" | awk '{print $2 " (" $1 ")", "/vm_actions '$SERVER_ID' " $1}' | jq -R -s -c 'split("\n") | map(select(length > 0) | {text: .[0], callback_data: .[1]}) | {inline_keyboard: [.]}' )
+                                    local inline_keyboard=$(echo "$vms" | awk '{print $2 " (" $1 ")", "/vm_actions '$SERVER_ID' " $1}' | jq -R -s -c 'split("\n") | map(select(length > 0) | {text: ., callback_data: .}) | {inline_keyboard: [.]}' )
                                     send_telegram_message "Virtual machines on server $SERVER_ID:" "$inline_keyboard"
                                 else
                                     send_telegram_message "Error: This command is only available for Proxmox servers."
@@ -360,45 +360,45 @@ EOF
                                 ;;
                             /stop_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ - з "$service" ]; тогда
-                                    send_telegram_message "Ошибка: должен быть указан service."
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
                                 else
                                     local result=$(systemctl stop "$service" 2>&1)
-                                    send_telegram_message "Сервис $service остановлен на сервере $SERVER_ID.\n$result"
+                                    send_telegram_message "Service $service stopped on server $SERVER_ID.\n$result"
                                 fi
                                 ;;
                             /restart_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ - з "$service" ]; тогда
-                                    send_telegram_message "Ошибка: должен быть указан service."
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
                                 else
                                     local result_stop=$(systemctl stop "$service" 2>&1)
                                     local result_start=$(systemctl start "$service" 2>&1)
-                                    send_telegram_message "Сервис $service перезапущен на сервере $SERVER_ID.\nРезультат остановки: $result_stop\nРезультат запуска: $result_start"
+                                    send_telegram_message "Service $service restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
                                 fi
                                 ;;
                             /sudo)
                                 local sudo_command=$(echo "$args")
-                                if [ - з "$sudo_command" ]; тогда
-                                    send_telegram_message "Ошибка: должна быть указана команда."
+                                if [ -z "$sudo_command" ]; then
+                                    send_telegram_message "Error: command must be specified."
                                 else
                                     local result=$(sudo "$sudo_command" 2>&1)
                                     send_telegram_message "$result"
                                 fi
                                 ;;
                             *)
-                                send_telegram_message "Неизвестная команда: $message_text"
+                                send_telegram_message "Unknown command: $message_text"
                                 ;;
                         esac
                     fi
-                elif [ -n "$callback_data" ]; тогда
+                elif [ -n "$callback_data" ]; then
                     local callback_command=$(echo "$callback_data" | awk '{print $1}')
                     local callback_server_id=$(echo "$callback_data" | awk '{print $2}')
                     local callback_args=$(echo "$callback_data" | cut -d' ' -f3-)
 
                     log "Received callback query: $callback_data from chat_id: $chat_id"
 
-                    if [ "$callback_server_id" == "$SERVER_ID" ]; тогда
+                    if [ "$callback_server_id" == "$SERVER_ID" ]; then
                         case $callback_command in
                             /service_actions)
                                 local service_id="$callback_args"
@@ -422,7 +422,7 @@ EOF
                                     -d reply_markup="$buttons"
                                 ;;
                             /vm_actions)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id="$callback_args"
                                     local inline_keyboard=$(cat <<EOF
 {
@@ -449,7 +449,7 @@ EOF
                                 fi
                                 ;;
                             /status_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id="$callback_args"
                                     local status=$(qm status "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
@@ -465,7 +465,7 @@ EOF
                                 fi
                                 ;;
                             /start_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id="$callback_args"
                                     local result=$(qm start "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
@@ -481,7 +481,7 @@ EOF
                                 fi
                                 ;;
                             /stop_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id="$callback_args"
                                     local result=$(qm stop "$vm_id" 2>&1)
                                     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
@@ -497,7 +497,7 @@ EOF
                                 fi
                                 ;;
                             /restart_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id="$callback_args"
                                     local result_stop=$(qm stop "$vm_id" 2>&1)
                                     local result_start=$(qm start "$vm_id" 2>&1)
