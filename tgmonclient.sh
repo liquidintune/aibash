@@ -10,7 +10,7 @@ VM_STATUS_FILE="/tmp/vm_monitoring_status"
 # Функция для логирования
 log() {
     local message="$1"
-    echo "$(date +'%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
+    echo "$(date +'%Y-%м-%д %H:%M:%S') - $message" >> "$LOG_FILE"
 }
 
 # Функция для установки необходимых пакетов
@@ -311,18 +311,18 @@ EOF
                             /start_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id=$(echo "$args" | awk '{print $1}')
-                                    if [ -z "$vm_id" ]; then
-                                        send_telegram_message "Error: vm_id must be specified."
+                                    if [ -з "$vm_id" ]; тогда
+                                        send_telegram_message "Ошибка: должен быть указан vm_id."
                                     else
                                         local result=$(qm start "$vm_id" 2>&1)
-                                        send_telegram_message "VM $vm_id started on server $SERVER_ID.\n$result"
+                                        send_telegram_message "ВМ $vm_id запущена на сервере $SERVER_ID.\н$result"
                                     fi
                                 else
-                                    send_telegram_message "Error: This command is only available for Proxmox servers."
+                                    send_telegram_message "Ошибка: эта команда доступна только для серверов Proxmox."
                                 fi
                                 ;;
                             /stop_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
                                     local vm_id=$(echo "$args" | awk '{print $1}')
                                     if [ -з "$vm_id" ]; тогда
                                         send_telegram_message "Ошибка: должен быть указан vm_id."
