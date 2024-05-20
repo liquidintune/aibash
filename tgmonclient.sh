@@ -83,19 +83,13 @@ configure_telegram
 # Функция для отправки сообщений в Telegram с обработкой ошибок
 send_telegram_message() {
     local message="$1"
-    local buttons="$2"
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
     local max_length=4096
 
     # Функция для отправки HTTP запроса
     send_request() {
         local text="$1"
-        local data
-        if [ -z "$buttons" ]; then
-            data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" '{chat_id: $chat_id, text: $text}')
-        else
-            data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" --argjson reply_markup "$buttons" '{chat_id: $chat_id, text: $text, reply_markup: $reply_markup}')
-        fi
+        local data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" '{chat_id: $chat_id, text: $text}')
         curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data"
     }
 
@@ -130,7 +124,7 @@ handle_response() {
             local retry_after=$(echo "$response" | jq -r '.parameters.retry_after')
             log "Received Too Many Requests error. Retrying after $retry_after seconds."
             sleep "$retry_after"
-            send_telegram_message "$message" "$buttons"
+            send_telegram_message "$message"
         else
             log "Error sending message: $response"
         fi
@@ -163,8 +157,10 @@ monitor_services() {
     if $status_changed; then
         echo "$current_status" > "$STATUS_FILE"
         for service in "${services[@]}"; do
-            if ! systemctl is-active --quiet "$service"; then
-                send_telegram_message "Service $service is not running on server $SERVER_ID!"
+            if systemctl is-active --quiet "$service"; then
+                send_telegram_message "🟢 Service $service is active on server $SERVER_ID."
+            else
+                send_telegram_message "🔴 Service $service is inactive on server $SERVER_ID."
             fi
         done
     fi
@@ -200,8 +196,10 @@ monitor_vms() {
                 local vm_name=$(echo "$vm" | awk '{print $2}')
                 local status=$(echo "$vm" | awk '{print $3}')
 
-                if [ "$status" != "running" ]; then
-                    send_telegram_message "VM $vm is not running on server $SERVER_ID!"
+                if [ "$status" == "running" ]; then
+                    send_telegram_message "🟢 VM $vm_name ($vm_id) is running on server $SERVER_ID."
+                else
+                    send_telegram_message "🔴 VM $vm_name ($vm_id) is not running on server $SERVER_ID."
                 fi
             done <<< "$vms"
         fi
@@ -234,11 +232,8 @@ handle_telegram_commands() {
 
             local update_id=$(_jq '.update_id')
             local message_text=$(_jq '.message.text')
-            local callback_query_id=$(_jq '.callback_query.id')
-            local callback_data=$(_jq '.callback_query.data')
             local chat_id=$(_jq '.message.chat.id')
-            local message_id=$(_jq '.callback_query.message.message_id')
-            local from_id=$(_jq '.callback_query.from.id')
+            local from_id=$(_jq '.message.from.id')
 
             log "Processing update_id: $update_id"
 
@@ -275,14 +270,31 @@ EOF
                                 ;;
                             /list_enabled_services)
                                 local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager | awk 'NR>1 {print $1}')
-                                local inline_keyboard=$(echo "$services" | jq -R -s -c 'split("\n") | map(select(length > 0) | {text: ., callback_data: ("/service_actions '$SERVER_ID' " + .)}) | {inline_keyboard: [.]}' )
-                                send_telegram_message "Enabled services on server $SERVER_ID:" "$inline_keyboard"
+                                local message="Enabled services on server $SERVER_ID:\n"
+                                for service in $services; do
+                                    if systemctl is-active --quiet "$service"; then
+                                        message+="🟢 $service\n"
+                                    else
+                                        message+="🔴 $service\n"
+                                    fi
+                                done
+                                send_telegram_message "$message"
                                 ;;
                             /list_vms)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                                    local inline_keyboard=$(echo "$vms" | awk '{print $2 " (" $1 ")", "/vm_actions '$SERVER_ID' " $1}' | jq -R -s -c 'split("\n") | map(select(length > 0) | {text: ., callback_data: .}) | {inline_keyboard: [.]}' )
-                                    send_telegram_message "Virtual machines on server $SERVER_ID:" "$inline_keyboard"
+                                    local message="Virtual machines on server $SERVER_ID:\n"
+                                    while read -r vm; do
+                                        local vm_id=$(echo "$vm" | awk '{print $1}')
+                                        local vm_name=$(echo "$vm" | awk '{print $2}')
+                                        local status=$(echo "$vm" | awk '{print $3}')
+                                        if [ "$status" == "running" ]; then
+                                            message+="🟢 $vm_name ($vm_id)\n"
+                                        else
+                                            message+="🔴 $vm_name ($vm_id)\n"
+                                        fi
+                                    done <<< "$vms"
+                                    send_telegram_message "$message"
                                 else
                                     send_telegram_message "Error: This command is only available for Proxmox servers."
                                 fi
@@ -316,252 +328,80 @@ EOF
                             /stop_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id=$(echo "$args" | awk '{print $1}')
-                                    if [ -z "$vm_id" ]; then
-                                        send_telegram_message "Error: vm_id must be specified."
+                                    if [ -з "$vm_id" ]; тогда
+                                        send_telegram_message "Ошибка: должен быть указан vm_id."
                                     else
                                         local result=$(qm stop "$vm_id" 2>&1)
-                                        send_telegram_message "VM $vm_id stopped on server $SERVER_ID.\n$result"
+                                        send_telegram_message "ВМ $vm_id остановлена на сервере $SERVER_ID.\n$result"
                                     fi
                                 else
-                                    send_telegram_message "Error: This command is only available for Proxmox servers."
+                                    send_telegram_message "Ошибка: эта команда доступна только для серверов Proxmox."
                                 fi
                                 ;;
                             /restart_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
                                     local vm_id=$(echo "$args" | awk '{print $1}')
-                                    if [ -z "$vm_id" ]; then
-                                        send_telegram_message "Error: vm_id must be specified."
+                                    if [ -з "$vm_id" ]; тогда
+                                        send_telegram_message "Ошибка: должен быть указан vm_id."
                                     else
                                         local result_stop=$(qm stop "$vm_id" 2>&1)
                                         local result_start=$(qm start "$vm_id" 2>&1)
-                                        send_telegram_message "VM $vm_id restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
+                                        send_telegram_message "ВМ $vm_id перезапущена на сервере $SERVER_ID.\нРезультат остановки: $result_stop\nРезультат запуска: $result_start"
                                     fi
                                 else
-                                    send_telegram_message "Error: This command is only available for Proxmox servers."
+                                    send_telegram_message "Ошибка: эта команда доступна только для серверов Proxmox."
                                 fi
                                 ;;
                             /status_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -z "$service" ]; then
-                                    send_telegram_message "Error: service must be specified."
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
                                 else
                                     local status=$(systemctl status "$service" 2>&1)
-                                    send_telegram_message "Status of service $service on server $SERVER_ID:\n$status"
+                                    send_telegram_message "Статус сервиса $service на сервере $SERVER_ID:\н$status"
                                 fi
                                 ;;
                             /start_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -z "$service" ]; then
-                                    send_telegram_message "Error: service must be specified."
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
                                 else
                                     local result=$(systemctl start "$service" 2>&1)
-                                    send_telegram_message "Service $service started on server $SERVER_ID.\n$result"
+                                    send_telegram_message "Сервис $service запущен на сервере $SERVER_ID.\н$result"
                                 fi
                                 ;;
                             /stop_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -z "$service" ]; then
-                                    send_telegram_message "Error: service must be specified."
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
                                 else
                                     local result=$(systemctl stop "$service" 2>&1)
-                                    send_telegram_message "Service $service stopped on server $SERVER_ID.\n$result"
+                                    send_telegram_message "Сервис $service остановлен на сервере $SERVER_ID.\н$result"
                                 fi
                                 ;;
                             /restart_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -z "$service" ]; then
-                                    send_telegram_message "Error: service must be specified."
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
                                 else
                                     local result_stop=$(systemctl stop "$service" 2>&1)
                                     local result_start=$(systemctl start "$service" 2>&1)
-                                    send_telegram_message "Service $service restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
+                                    send_telegram_message "Сервис $service перезапущен на сервере $SERVER_ID.\нРезультат остановки: $result_stop\nРезультат запуска: $result_start"
                                 fi
                                 ;;
                             /sudo)
                                 local sudo_command=$(echo "$args")
-                                if [ -z "$sudo_command" ]; then
-                                    send_telegram_message "Error: command must be specified."
+                                if [ -з "$sudo_command" ]; тогда
+                                    send_telegram_message "Ошибка: должна быть указана команда."
                                 else
                                     local result=$(sudo "$sudo_command" 2>&1)
                                     send_telegram_message "$result"
                                 fi
                                 ;;
                             *)
-                                send_telegram_message "Unknown command: $message_text"
+                                send_telegram_message "Неизвестная команда: $message_text"
                                 ;;
                         esac
-                    fi
-                elif [ -n "$callback_data" ]; then
-                    local callback_command=$(echo "$callback_data" | awk '{print $1}')
-                    local callback_server_id=$(echo "$callback_data" | awk '{print $2}')
-                    local callback_args=$(echo "$callback_data" | cut -d' ' -f3-)
-
-                    log "Received callback query: $callback_data from chat_id: $chat_id"
-
-                    if [ "$callback_server_id" == "$SERVER_ID" ]; then
-                        case $callback_command in
-                            /service_actions)
-                                local service_id="$callback_args"
-                                local inline_keyboard=$(cat <<EOF
-{
-    "inline_keyboard": [
-        [
-            {"text": "Status", "callback_data": "/status_service $SERVER_ID $service_id"},
-            {"text": "Start", "callback_data": "/start_service $SERVER_ID $service_id"},
-            {"text": "Stop", "callback_data": "/stop_service $SERVER_ID $service_id"},
-            {"text": "Restart", "callback_data": "/restart_service $SERVER_ID $service_id"}
-        ]
-    ]
-}
-EOF
-)
-                                buttons=$(echo "$inline_keyboard" | jq -c .)
-                                curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageReplyMarkup" \
-                                    -d chat_id="$chat_id" \
-                                    -d message_id="$message_id" \
-                                    -d reply_markup="$buttons"
-                                ;;
-                            /vm_actions)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id="$callback_args"
-                                    local inline_keyboard=$(cat <<EOF
-{
-    "inline_keyboard": [
-        [
-            {"text": "Status", "callback_data": "/status_vm $SERVER_ID $vm_id"},
-            {"text": "Start", "callback_data": "/start_vm $SERVER_ID $vm_id"},
-            {"text": "Stop", "callback_data": "/stop_vm $SERVER_ID $vm_id"},
-            {"text": "Restart", "callback_data": "/restart_vm $SERVER_ID $vm_id"}
-        ]
-    ]
-}
-EOF
-)
-                                    buttons=$(echo "$inline_keyboard" | jq -c .)
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/editMessageReplyMarkup" \
-                                        -d chat_id="$chat_id" \
-                                        -d message_id="$message_id" \
-                                        -d reply_markup="$buttons"
-                                else
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="Error: This command is only available for Proxmox servers."
-                                fi
-                                ;;
-                            /status_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id="$callback_args"
-                                    local status=$(qm status "$vm_id" 2>&1)
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="$status"
-                                    send_telegram_message "Status of VM $vm_id on server $SERVER_ID: $status"
-                                    log "Handled status_vm for $vm_id: $status"
-                                else
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="Error: This command is only available for Proxmox servers."
-                                    log "Error: status_vm command is only available for Proxmox servers."
-                                fi
-                                ;;
-                            /start_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id="$callback_args"
-                                    local result=$(qm start "$vm_id" 2>&1)
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="VM $vm_id started.\n$result"
-                                    send_telegram_message "Started VM $vm_id on server $SERVER_ID: $result"
-                                    log "Handled start_vm for $vm_id: $result"
-                                else
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="Error: This command is only available for Proxmox servers."
-                                    log "Error: start_vm command is only available for Proxmox servers."
-                                fi
-                                ;;
-                            /stop_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id="$callback_args"
-                                    local result=$(qm stop "$vm_id" 2>&1)
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="VM $vm_id stopped.\n$result"
-                                    send_telegram_message "Stopped VM $vm_id on server $SERVER_ID: $result"
-                                    log "Handled stop_vm for $vm_id: $result"
-                                else
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="Error: This command is only available for Proxmox servers."
-                                    log "Error: stop_vm command is only available for Proxmox servers."
-                                fi
-                                ;;
-                            /restart_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                    local vm_id="$callback_args"
-                                    local result_stop=$(qm stop "$vm_id" 2>&1)
-                                    local result_start=$(qm start "$vm_id" 2>&1)
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="VM $vm_id restarted.\nStop result: $result_stop\nStart result: $result_start"
-                                    send_telegram_message "Restarted VM $vm_id on server $SERVER_ID:\nStop result: $result_stop\nStart result: $result_start"
-                                    log "Handled restart_vm for $vm_id: Stop result: $result_stop, Start result: $result_start"
-                                else
-                                    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                        -d callback_query_id="$callback_query_id" \
-                                        -d text="Error: This command is only available for Proxmox servers."
-                                    log "Error: restart_vm command is only available for Proxmox servers."
-                                fi
-                                ;;
-                            /status_service)
-                                local service="$callback_args"
-                                local status=$(systemctl status "$service" 2>&1)
-                                curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                    -d callback_query_id="$callback_query_id" \
-                                    -d text="$status"
-                                send_telegram_message "Status of service $service on server $SERVER_ID: $status"
-                                log "Handled status_service for $service: $status"
-                                ;;
-                            /start_service)
-                                local service="$callback_args"
-                                local result=$(systemctl start "$service" 2>&1)
-                                curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                    -d callback_query_id="$callback_query_id" \
-                                    -d text="Service $service started.\n$result"
-                                send_telegram_message "Started service $service on server $SERVER_ID: $result"
-                                log "Handled start_service for $service: $result"
-                                ;;
-                            /stop_service)
-                                local service="$callback_args"
-                                local result=$(systemctl stop "$service" 2>&1)
-                                curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                    -d callback_query_id="$callback_query_id" \
-                                    -d text="Service $service stopped.\n$result"
-                                send_telegram_message "Stopped service $service on server $SERVER_ID: $result"
-                                log "Handled stop_service for $service: $result"
-                                ;;
-                            /restart_service)
-                                local service="$callback_args"
-                                local result_stop=$(systemctl stop "$service" 2>&1)
-                                local result_start=$(systemctl start "$service" 2>&1)
-                                curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                    -d callback_query_id="$callback_query_id" \
-                                    -d text="Service $service restarted.\nStop result: $result_stop\nStart result: $result_start"
-                                send_telegram_message "Restarted service $service on server $SERVER_ID:\nStop result: $result_stop\nStart result: $result_start"
-                                log "Handled restart_service for $service: Stop result: $result_stop, Start result: $result_start"
-                                ;;
-                            *)
-                                curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                                    -d callback_query_id="$callback_query_id" \
-                                    -d text="Unknown command."
-                                log "Unknown command: $callback_data"
-                                ;;
-                        esac
-                    else
-                        curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
-                            -d callback_query_id="$callback_query_id" \
-                            -d text="Error: Command not for this server."
-                        log "Error: Command not for this server. Callback data: $callback_data"
                     fi
                 fi
             fi
