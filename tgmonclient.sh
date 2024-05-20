@@ -7,12 +7,12 @@ install_packages() {
     if [[ -f /etc/debian_version ]]; then
         if ! command -v jq &> /dev/null; then
             apt-get update
-            apt-get install -y jq curl
+            apt-get install -y jq curl psmisc
         fi
     elif [[ -f /etc/redhat-release ]]; then
         if ! command -v jq &> /dev/null; then
             yum install -y epel-release
-            yum install -y jq curl
+            yum install -y jq curl psmic
         fi
     else
         echo "Unsupported OS"
