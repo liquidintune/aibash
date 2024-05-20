@@ -66,8 +66,7 @@ send_telegram_message() {
     while : ; do
         response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d chat_id=$TELEGRAM_CHAT_ID \
-            -d text="$message" \
-            -d parse_mode="HTML")
+            -d text="$message")
 
         if echo "$response" | grep -q '"ok":true'; then
             break
@@ -181,19 +180,19 @@ handle_telegram_commands() {
                 ;;
             /help)
                 send_telegram_message "Доступные команды:
-<code>/server_id</code> - показать уникальный идентификатор сервера.
-<code>/help</code> - показать список доступных команд.
-<code>/list_enabled_services <server_id></code> - показать список включенных сервисов на сервере.
-<code>/list_vms <server_id></code> - показать список виртуальных машин (только для Proxmox).
-<code>/status_vm <server_id> <vm_id></code> - показать статус виртуальной машины (только для Proxmox).
-<code>/start_vm <server_id> <vm_id></code> - запустить виртуальную машину (только для Proxmox).
-<code>/stop_vm <server_id> <vm_id></code> - остановить виртуальную машину (только для Proxmox).
-<code>/restart_vm <server_id> <vm_id></code> - перезапустить виртуальную машину (только для Proxmox).
-<code>/status_service <server_id> <service></code> - показать статус сервиса.
-<code>/start_service <server_id> <service></code> - запустить сервис.
-<code>/stop_service <server_id> <service></code> - остановить сервис.
-<code>/restart_service <server_id> <service></code> - перезапустить сервис.
-<code>/sudo <server_id> <command></code> - выполнить команду с правами суперпользователя."
+                /server_id - показать уникальный идентификатор сервера.
+                /help - показать список доступных команд.
+                /list_enabled_services <server_id> - показать список включенных сервисов на сервере.
+                /list_vms <server_id> - показать список виртуальных машин (только для Proxmox).
+                /status_vm <server_id> <vm_id> - показать статус виртуальной машины (только для Proxmox).
+                /start_vm <server_id> <vm_id> - запустить виртуальную машину (только для Proxmox).
+                /stop_vm <server_id> <vm_id> - остановить виртуальную машину (только для Proxmox).
+                /restart_vm <server_id> <vm_id> - перезапустить виртуальную машину (только для Proxmox).
+                /status_service <server_id> <service> - показать статус сервиса.
+                /start_service <server_id> <service> - запустить сервис.
+                /stop_service <server_id> <service> - остановить сервис.
+                /restart_service <server_id> <service> - перезапустить сервис.
+                /sudo <server_id> <command> - выполнить команду с правами суперпользователя."
                 ;;
             /list_enabled_services\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
@@ -268,7 +267,7 @@ handle_telegram_commands() {
             /restart_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ]; then
+                if [ "$target_server_id" = "$SERVER_ID" ];len
                     systemctl restart $service
                     send_telegram_message "Сервис $service на сервере $SERVER_ID перезапущен"
                 fi
