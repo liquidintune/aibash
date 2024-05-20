@@ -5,6 +5,7 @@ LOG_FILE="/var/log/monitoring_script.log"
 CONFIG_FILE="$HOME/.telegram_bot_config"
 SECRET_FILE="$HOME/.telegram_bot_secret"
 STATUS_FILE="/tmp/monitoring_status"
+VM_STATUS_FILE="/tmp/vm_monitoring_status"
 
 # Функция для логирования
 log() {
@@ -183,8 +184,8 @@ monitor_vms() {
             current_status+="$vm_id:$status;"
 
             if [ "$status" != "running" ]; then
-                if [ -f "$STATUS_FILE" ]; then
-                    local previous_status=$(cat "$STATUS_FILE")
+                if [ -f "$VM_STATUS_FILE" ]; then
+                    local previous_status=$(cat "$VM_STATUS_FILE")
                     if [[ ! "$previous_status" =~ "$vm_id:$status;" ]]; then
                         status_changed=true
                     fi
@@ -195,7 +196,7 @@ monitor_vms() {
         done <<< "$vms"
 
         if $status_changed; then
-            echo "$current_status" > "$STATUS_FILE"
+            echo "$current_status" > "$VM_STATUS_FILE"
             while read -r vm; do
                 local vm_id=$(echo $vm | awk '{print $1}')
                 local vm_name=$(echo $vm | awk '{print $2}')
