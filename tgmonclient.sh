@@ -251,6 +251,7 @@ Available commands:
 /server_id - Show the server ID.
 /list_enabled_services <server_id> - List all enabled services.
 /list_vms <server_id> - List all virtual machines (Proxmox only).
+/status_vm <server_id> <vm_id> - Show the status of a virtual machine (Proxmox only).
 /start_vm <server_id> <vm_id> - Start a virtual machine (Proxmox only).
 /stop_vm <server_id> <vm_id> - Stop a virtual machine (Proxmox only).
 /restart_vm <server_id> <vm_id> - Restart a virtual machine (Proxmox only).
@@ -276,6 +277,19 @@ EOF
                                     done <<< "$vms"
 
                                     send_telegram_message "$vm_list"
+                                else
+                                    send_telegram_message "Error: This command is only available for Proxmox servers."
+                                fi
+                                ;;
+                            /status_vm)
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
+                                    local vm_id=$(echo "$args" | awk '{print $1}')
+                                    if [ -z "$vm_id" ]; then
+                                        send_telegram_message "Error: vm_id must be specified."
+                                    else
+                                        local status=$(qm status "$vm_id" 2>&1)
+                                        send_telegram_message "Status of VM $vm_id on server $SERVER_ID:\n$status"
+                                    fi
                                 else
                                     send_telegram_message "Error: This command is only available for Proxmox servers."
                                 fi
