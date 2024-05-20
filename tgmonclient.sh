@@ -6,6 +6,10 @@ CONFIG_FILE="/etc/monitoring_script.conf"
 # Лог файл
 LOG_FILE="/var/log/monitoring_script.log"
 
+# Храним предыдущие состояния сервисов и виртуальных машин
+PREV_SERVICE_STATUSES="/tmp/prev_service_statuses"
+PREV_VM_STATUSES="/tmp/prev_vm_statuses"
+
 # Проверка и установка необходимых пакетов
 install_packages() {
     if ! command -v jq &> /dev/null; then
@@ -57,10 +61,27 @@ configure_telegram() {
 # Отправка уведомлений в Telegram
 send_telegram_message() {
     local message=$1
-    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-        -d chat_id=$TELEGRAM_CHAT_ID \
-        -d text="$message" \
-        -d parse_mode="HTML"
+    local retry_after=0
+
+    while : ; do
+        response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d chat_id=$TELEGRAM_CHAT_ID \
+            -d text="$message" \
+            -d parse_mode="HTML")
+
+        if echo "$response" | grep -q '"ok":true'; then
+            break
+        fi
+
+        if echo "$response" | grep -q '"error_code":429'; then
+            retry_after=$(echo "$response" | jq '.parameters.retry_after')
+            echo "Rate limit exceeded. Retrying after $retry_after seconds."
+            sleep $retry_after
+        else
+            echo "Failed to send message: $response"
+            break
+        fi
+    done
 }
 
 # Логирование
@@ -71,13 +92,34 @@ log_action() {
 # Мониторинг состояния сервисов
 monitor_services() {
     local services=("nginx" "mysql" "php7.4-fpm")
+    declare -A current_statuses
+
     for service in "${services[@]}"; do
         status=$(systemctl is-active $service)
-        if [ "$status" = "active" ]; then
-            send_telegram_message "🟢 Service $service is active"
+        current_statuses[$service]=$status
+
+        if [ -f "$PREV_SERVICE_STATUSES" ]; then
+            prev_status=$(grep "$service" "$PREV_SERVICE_STATUSES" | cut -d' ' -f2)
+            if [ "$status" != "$prev_status" ]; then
+                if [ "$status" = "active" ]; then
+                    send_telegram_message "🟢 Service $service is active"
+                else
+                    send_telegram_message "🔴 Service $service is inactive"
+                fi
+            fi
         else
-            send_telegram_message "🔴 Service $service is inactive"
+            if [ "$status" = "active" ]; then
+                send_telegram_message "🟢 Service $service is active"
+            else
+                send_telegram_message "🔴 Service $service is inactive"
+            fi
         fi
+    done
+
+    # Сохраняем текущие статусы
+    > "$PREV_SERVICE_STATUSES"
+    for service in "${!current_statuses[@]}"; do
+        echo "$service ${current_statuses[$service]}" >> "$PREV_SERVICE_STATUSES"
     done
 }
 
@@ -85,13 +127,34 @@ monitor_services() {
 monitor_vms() {
     if [ "$SERVER_TYPE" = "Proxmox" ]; then
         vms=$(qm list | awk 'NR>1 {print $1}')
+        declare -A current_statuses
+
         for vm in $vms; do
             status=$(qm status $vm | awk '{print $2}')
-            if [ "$status" = "running" ]; then
-                send_telegram_message "🟢 VM $vm is running"
+            current_statuses[$vm]=$status
+
+            if [ -f "$PREV_VM_STATUSES" ]; then
+                prev_status=$(grep "$vm" "$PREV_VM_STATUSES" | cut -d' ' -f2)
+                if [ "$status" != "$prev_status" ]; then
+                    if [ "$status" = "running" ]; then
+                        send_telegram_message "🟢 VM $vm is running"
+                    else
+                        send_telegram_message "🔴 VM $vm is not running"
+                    fi
+                fi
             else
-                send_telegram_message "🔴 VM $vm is not running"
+                if [ "$status" = "running" ]; then
+                    send_telegram_message "🟢 VM $vm is running"
+                else
+                    send_telegram_message "🔴 VM $vm is not running"
+                fi
             fi
+        done
+
+        # Сохраняем текущие статусы
+        > "$PREV_VM_STATUSES"
+        for vm in "${!current_statuses[@]}"; do
+            echo "$vm ${current_statuses[$vm]}" >> "$PREV_VM_STATUSES"
         done
     fi
 }
@@ -132,8 +195,14 @@ handle_telegram_commands() {
 # Основной цикл мониторинга
 monitoring_loop() {
     while true; do
-        monitor_services
-        monitor_vms
+        if [ "$SERVER_TYPE" = "Proxmox" ]; then
+            monitor_vms
+        fi
+
+        if [ "$SERVER_TYPE" != "Proxmox" ]; then
+            monitor_services
+        fi
+
         handle_telegram_commands
         sleep 60
     done
