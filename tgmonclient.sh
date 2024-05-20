@@ -256,11 +256,15 @@ handle_telegram_commands() {
             local message_id=$(_jq '.callback_query.message.message_id')
             local from_id=$(_jq '.callback_query.from.id')
 
+            log "Processing update_id: $update_id"
+
             if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
                 if [ -n "$message_text" ]; then
                     local command=$(echo "$message_text" | awk '{print $1}')
                     local cmd_server_id=$(echo "$message_text" | awk '{print $2}')
                     local args=$(echo "$message_text" | cut -d' ' -f3-)
+
+                    log "Received command: $command from chat_id: $chat_id"
 
                     if [ "$command" == "/server_id" ]; then
                         send_telegram_message "Server ID: $SERVER_ID"
@@ -372,7 +376,9 @@ EOF
                     local callback_command=$(echo "$callback_data" | awk '{print $1}')
                     local callback_server_id=$(echo "$callback_data" | awk '{print $2}')
                     local callback_args=$(echo "$callback_data" | cut -d' ' -f3-)
-                    
+
+                    log "Received callback query: $callback_data from chat_id: $chat_id"
+
                     if [ "$callback_server_id" == "$SERVER_ID" ]; then
                         case $callback_command in
                             /status_vm)
