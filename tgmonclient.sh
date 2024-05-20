@@ -103,7 +103,7 @@ send_telegram_message() {
         done
         parts+=("$message")
 
-        for part in "${parts[@]}"; do
+        for part in "${parts[@]}"]; do
             local response=$(send_request "$part")
             log "Sent part of a long message to Telegram"
             handle_response "$response"
@@ -314,78 +314,78 @@ EOF
                             /stop_vm)
                                 if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id=$(echo "$args" | awk '{print $1}')
-                                    if [ -з "$vm_id" ]; тогда
-                                        send_telegram_message "Ошибка: должен быть указан vm_id."
+                                    if [ -z "$vm_id" ]; then
+                                        send_telegram_message "Error: vm_id must be specified."
                                     else
                                         local result=$(qm stop "$vm_id" 2>&1)
-                                        send_telegram_message "ВМ $vm_id остановлена на сервере $SERVER_ID.\n$result"
+                                        send_telegram_message "VM $vm_id stopped on server $SERVER_ID.\n$result"
                                     fi
                                 else
-                                    send_telegram_message "Ошибка: эта команда доступна только для серверов Proxmox."
+                                    send_telegram_message "Error: This command is only available for Proxmox servers."
                                 fi
                                 ;;
                             /restart_vm)
-                                if [ "$SERVER_TYPE" == "Proxmox" ]; тогда
+                                if [ "$SERVER_TYPE" == "Proxmox" ]; then
                                     local vm_id=$(echo "$args" | awk '{print $1}')
-                                    if [ -з "$vm_id" ]; тогда
-                                        send_telegram_message "Ошибка: должен быть указан vm_id."
+                                    if [ -z "$vm_id" ]; then
+                                        send_telegram_message "Error: vm_id must be specified."
                                     else
                                         local result_stop=$(qm stop "$vm_id" 2>&1)
                                         local result_start=$(qm start "$vm_id" 2>&1)
-                                        send_telegram_message "ВМ $vm_id перезапущена на сервере $SERVER_ID.\nРезультат остановки: $result_stop\nРезультат запуска: $result_start"
+                                        send_telegram_message "VM $vm_id restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
                                     fi
                                 else
-                                    send_telegram_message "Ошибка: эта команда доступна только для серверов Proxmox."
+                                    send_telegram_message "Error: This command is only available for Proxmox servers."
                                 fi
                                 ;;
                             /status_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -з "$service" ]; тогда
-                                    send_telegram_message "Ошибка: должен быть указан service."
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
                                 else
                                     local status=$(systemctl status "$service" 2>&1)
-                                    send_telegram_message "Статус сервиса $service на сервере $SERVER_ID:\n$status"
+                                    send_telegram_message "Status of service $service on server $SERVER_ID:\n$status"
                                 fi
                                 ;;
                             /start_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -з "$service" ]; тогда
-                                    send_telegram_message "Ошибка: должен быть указан service."
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
                                 else
                                     local result=$(systemctl start "$service" 2>&1)
-                                    send_telegram_message "Сервис $service запущен на сервере $SERVER_ID.\n$result"
+                                    send_telegram_message "Service $service started on server $SERVER_ID.\n$result"
                                 fi
                                 ;;
                             /stop_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -з "$service" ]; тогда
-                                    send_telegram_message "Ошибка: должен быть указан service."
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
                                 else
                                     local result=$(systemctl stop "$service" 2>&1)
-                                    send_telegram_message "Сервис $service остановлен на сервере $SERVER_ID.\n$result"
+                                    send_telegram_message "Service $service stopped on server $SERVER_ID.\n$result"
                                 fi
                                 ;;
                             /restart_service)
                                 local service=$(echo "$args" | awk '{print $1}')
-                                if [ -з "$service" ]; тогда
-                                    send_telegram_message "Ошибка: должен быть указан service."
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
                                 else
                                     local result_stop=$(systemctl stop "$service" 2>&1)
                                     local result_start=$(systemctl start "$service" 2>&1)
-                                    send_telegram_message "Сервис $service перезапущен на сервере $SERVER_ID.\nРезультат остановки: $result_stop\nРезультат запуска: $result_start"
+                                    send_telegram_message "Service $service restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
                                 fi
                                 ;;
                             /sudo)
                                 local sudo_command=$(echo "$args")
-                                if [ -з "$sudo_command" ]; тогда
-                                    send_telegram_message "Ошибка: должна быть указана команда."
+                                if [ -z "$sudo_command" ]; then
+                                    send_telegram_message "Error: command must be specified."
                                 else
                                     local result=$(sudo "$sudo_command" 2>&1)
                                     send_telegram_message "$result"
                                 fi
                                 ;;
                             *)
-                                send_telegram_message "Неизвестная команда: $message_text"
+                                send_telegram_message "Unknown command: $message_text"
                                 ;;
                         esac
                     fi
@@ -400,7 +400,7 @@ EOF
 }
 
 # Отправка сообщения о запуске скрипта
-send_telegram_message "Скрипт мониторинга запущен на сервере $SERVER_ID."
+send_telegram_message "Monitoring script started on server $SERVER_ID."
 
 # Запуск обработки команд и мониторинга
 handle_telegram_commands &
