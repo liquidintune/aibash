@@ -256,7 +256,7 @@ handle_telegram_commands() {
             local message_id=$(_jq '.callback_query.message.message_id')
             local from_id=$(_jq '.callback_query.from.id')
 
-            if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
+            if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ];then
                 if [ -n "$message_text" ]; then
                     local command=$(echo $message_text | awk '{print $1}')
                     local cmd_server_id=$(echo $message_text | awk '{print $2}')
