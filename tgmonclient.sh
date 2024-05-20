@@ -38,6 +38,7 @@ check_and_kill_old_process() {
         if ps -p "$old_pid" > /dev/null 2>&1; then
             echo "Killing old process with PID $old_pid"
             kill -9 "$old_pid"
+            killall -s 9 tgmonclient.sh
         fi
     fi
     
