@@ -102,16 +102,16 @@ monitor_services() {
             prev_status=$(grep "$service" "$PREV_SERVICE_STATUSES" | cut -d' ' -f2)
             if [ "$status" != "$prev_status" ]; then
                 if [ "$status" = "active" ]; then
-                    send_telegram_message "🟢 Service $service is active"
+                    send_telegram_message "🟢 Service $service is active on server $SERVER_ID"
                 else
-                    send_telegram_message "🔴 Service $service is inactive"
+                    send_telegram_message "🔴 Service $service is inactive on server $SERVER_ID"
                 fi
             fi
         else
             if [ "$status" = "active" ]; then
-                send_telegram_message "🟢 Service $service is active"
+                send_telegram_message "🟢 Service $service is active on server $SERVER_ID"
             else
-                send_telegram_message "🔴 Service $service is inactive"
+                send_telegram_message "🔴 Service $service is inactive on server $SERVER_ID"
             fi
         fi
     done
@@ -137,16 +137,16 @@ monitor_vms() {
                 prev_status=$(grep "$vm" "$PREV_VM_STATUSES" | cut -d' ' -f2)
                 if [ "$status" != "$prev_status" ]; then
                     if [ "$status" = "running" ]; then
-                        send_telegram_message "🟢 VM $vm is running"
+                        send_telegram_message "🟢 VM $vm is running on server $SERVER_ID"
                     else
-                        send_telegram_message "🔴 VM $vm is not running"
+                        send_telegram_message "🔴 VM $vm is not running on server $SERVER_ID"
                     fi
                 fi
             else
                 if [ "$status" = "running" ]; then
-                    send_telegram_message "🟢 VM $vm is running"
+                    send_telegram_message "🟢 VM $vm is running on server $SERVER_ID"
                 else
-                    send_telegram_message "🔴 VM $vm is not running"
+                    send_telegram_message "🔴 VM $vm is not running on server $SERVER_ID"
                 fi
             fi
         done
@@ -166,29 +166,33 @@ handle_telegram_commands() {
         command=$(echo $update | jq -r '.message.text')
         chat_id=$(echo $update | jq -r '.message.chat.id')
         
-        case $command in
-            /server_id)
-                send_telegram_message "Server ID: $SERVER_ID"
-                ;;
-            /help)
-                send_telegram_message "Available commands: /server_id, /help, /list_enabled_services, /list_vms, /status_vm, /start_vm, /stop_vm, /restart_vm, /status_service, /start_service, /stop_service, /restart_service, /sudo"
-                ;;
-            /list_enabled_services)
-                services=$(systemctl list-units --type=service --state=running | awk '{print $1}')
-                send_telegram_message "Enabled services:\n$services"
-                ;;
-            /list_vms)
-                if [ "$SERVER_TYPE" = "Proxmox" ]; then
-                    vms=$(qm list)
-                    send_telegram_message "VMs:\n$vms"
-                else
-                    send_telegram_message "Command not supported on this server type."
-                fi
-                ;;
-            *)
-                send_telegram_message "Unknown command."
-                ;;
-        esac
+        if echo "$command" | grep -q "^/$SERVER_ID"; then
+            local actual_command=${command#*/$SERVER_ID }
+            
+            case $actual_command in
+                server_id)
+                    send_telegram_message "Server ID: $SERVER_ID"
+                    ;;
+                help)
+                    send_telegram_message "Available commands: /$SERVER_ID server_id, /$SERVER_ID help, /$SERVER_ID list_enabled_services, /$SERVER_ID list_vms, /$SERVER_ID status_vm, /$SERVER_ID start_vm, /$SERVER_ID stop_vm, /$SERVER_ID restart_vm, /$SERVER_ID status_service, /$SERVER_ID start_service, /$SERVER_ID stop_service, /$SERVER_ID restart_service, /$SERVER_ID sudo"
+                    ;;
+                list_enabled_services)
+                    services=$(systemctl list-units --type=service --state=running | awk '{print $1}')
+                    send_telegram_message "Enabled services on server $SERVER_ID:\n$services"
+                    ;;
+                list_vms)
+                    if [ "$SERVER_TYPE" = "Proxmox" ]; then
+                        vms=$(qm list)
+                        send_telegram_message "VMs on server $SERVER_ID:\n$vms"
+                    else
+                        send_telegram_message "Command not supported on this server type."
+                    fi
+                    ;;
+                *)
+                    send_telegram_message "Unknown command."
+                    ;;
+            esac
+        fi
     done
 }
 
@@ -197,9 +201,7 @@ monitoring_loop() {
     while true; do
         if [ "$SERVER_TYPE" = "Proxmox" ]; then
             monitor_vms
-        fi
-
-        if [ "$SERVER_TYPE" != "Proxmox" ]; then
+        else
             monitor_services
         fi
 
