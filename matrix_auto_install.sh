@@ -141,8 +141,13 @@ else
     echo "Сертификаты уже существуют и будут использованы."
 fi
 
-# Перезапуск Nginx для применения нового сертификата
-systemctl restart nginx
+# Проверка наличия сертификатов перед перезапуском Nginx
+if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/${ELEMENT_DOMAIN}/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/${ADMIN_DOMAIN}/fullchain.pem" ]; then
+    systemctl restart nginx
+else
+    echo "Ошибка: Сертификаты не найдены."
+    exit 1
+fi
 
 # Установка и настройка coturn
 apt install -y coturn
