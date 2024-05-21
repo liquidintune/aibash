@@ -50,7 +50,7 @@ if [ -d "${ADMIN_PATH}" ]; then
 fi
 
 # Удаление Synapse
-if [ -d "${SYNAPSE_CONF_DIR}" ];то
+if [ -d "${SYNAPSE_CONF_DIR}" ]; then
     rm -rf ${SYNAPSE_CONF_DIR}
 fi
 
