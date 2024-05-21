@@ -196,7 +196,7 @@ handle_telegram_commands() {
                 local target_server_id
                 target_server_id=$(echo "$command" | awk '{print $2}')
                 if [[ "$target_server_id" = "$SERVER_ID" ]]; then
-                    local services service_list
+                    local services service_list=""
                     services=$(systemctl list-units --type=service --state=running | awk '{print $1}')
                     for service in $services; do
                         local status
@@ -214,7 +214,7 @@ handle_telegram_commands() {
                 local target_server_id
                 target_server_id=$(echo "$command" | awk '{print $2}')
                 if [[ "$SERVER_TYPE" = "Proxmox" && "$target_server_id" = "$SERVER_ID" ]]; then
-                    local vms vm_list
+                    local vms vm_list=""
                     vms=$(qm list)
                     while IFS= read -r line; do
                         local vm_id vm_status
