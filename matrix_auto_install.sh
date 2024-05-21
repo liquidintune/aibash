@@ -2,8 +2,8 @@
 
 # Определение переменных
 DOMAIN="chat.spkssp.ru"
-ELEMENT_DOMAIN="element.${DOMAIN}"
-ADMIN_DOMAIN="admin.${DOMAIN}"
+ELEMENT_PATH="/var/www/element"
+ADMIN_PATH="/opt/synapse-admin"
 SYNAPSE_CONF_DIR="/etc/matrix-synapse"
 SYNAPSE_DATA_DIR="/var/lib/matrix-synapse"
 ADMIN_EMAIL="liquid.intune@gmail.com"
@@ -12,8 +12,6 @@ TURN_USER="turnuser"
 TURN_PASSWORD=$(openssl rand -base64 32)
 SYNAPSE_SHARED_SECRET=$(openssl rand -hex 32)
 CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
-ELEMENT_CERT_DIR="/etc/letsencrypt/live/${ELEMENT_DOMAIN}"
-ADMIN_CERT_DIR="/etc/letsencrypt/live/${ADMIN_DOMAIN}"
 
 # Обновление системы и установка необходимых пакетов
 apt update && apt upgrade -y
@@ -67,7 +65,7 @@ rm -f /etc/nginx/sites-enabled/default
 cat > /etc/nginx/sites-available/matrix <<EOF
 server {
     listen 80;
-    server_name ${DOMAIN} ${ELEMENT_DOMAIN} ${ADMIN_DOMAIN};
+    server_name ${DOMAIN};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -102,28 +100,18 @@ server {
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
     }
-}
 
-server {
-    listen 443 ssl;
-    server_name ${ELEMENT_DOMAIN};
+    location /element {
+        alias ${ELEMENT_PATH};
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+    }
 
-    ssl_certificate /etc/letsencrypt/live/${ELEMENT_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${ELEMENT_DOMAIN}/privkey.pem;
-
-    root /var/www/element;
-    index index.html;
-}
-
-server {
-    listen 443 ssl;
-    server_name ${ADMIN_DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/${ADMIN_DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${ADMIN_DOMAIN}/privkey.pem;
-
-    root /opt/synapse-admin;
-    index index.html;
+    location /admin {
+        alias ${ADMIN_PATH};
+        index index.html;
+        try_files \$uri \$uri/ /index.html;
+    }
 }
 EOF
 
@@ -133,16 +121,16 @@ ln -sf /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
 apt install -y certbot python3-certbot-nginx
 mkdir -p /var/www/certbot
 
-if [ ! -d "$CERT_DIR" ] || [ ! -d "$ELEMENT_CERT_DIR" ] || [ ! -d "$ADMIN_CERT_DIR" ]; then
-    if ! certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} -d ${ELEMENT_DOMAIN} -d ${ADMIN_DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
-        certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} -d ${ELEMENT_DOMAIN} -d ${ADMIN_DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
+if [ ! -d "$CERT_DIR" ]; then
+    if ! certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
+        certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
     fi
 else
     echo "Сертификаты уже существуют и будут использованы."
 fi
 
 # Проверка наличия сертификатов перед перезапуском Nginx
-if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/${ELEMENT_DOMAIN}/fullchain.pem" ] && [ -f "/etc/letsencrypt/live/${ADMIN_DOMAIN}/fullchain.pem" ]; then
+if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
     systemctl restart nginx
 else
     echo "Ошибка: Сертификаты не найдены."
@@ -178,20 +166,20 @@ systemctl enable coturn
 systemctl start coturn
 
 # Установка Element
-if [ -d "/var/www/element" ]; then
-    rm -rf /var/www/element
+if [ -d "${ELEMENT_PATH}" ]; then
+    rm -rf ${ELEMENT_PATH}
 fi
-git clone https://github.com/vector-im/element-web.git /var/www/element
-cd /var/www/element
+git clone https://github.com/vector-im/element-web.git ${ELEMENT_PATH}
+cd ${ELEMENT_PATH}
 yarn install
 yarn build
 
 # Установка Synapse Admin
-if [ -d "/opt/synapse-admin" ]; then
-    rm -rf /opt/synapse-admin
+if [ -d "${ADMIN_PATH}" ]; then
+    rm -rf ${ADMIN_PATH}
 fi
-git clone https://github.com/Awesome-Technologies/synapse-admin.git /opt/synapse-admin
-cd /opt/synapse-admin
+git clone https://github.com/Awesome-Technologies/synapse-admin.git ${ADMIN_PATH}
+cd ${ADMIN_PATH}
 yarn install
 yarn build
 
