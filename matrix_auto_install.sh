@@ -22,6 +22,9 @@ apt install -y lsb-release wget apt-transport-https gnupg2 curl software-propert
 # Установка Yarn
 npm install -g yarn
 
+# Создание пользователя и группы для Synapse
+useradd --system --home-dir /var/lib/matrix-synapse --shell /bin/false synapse
+
 # Проверка и удаление предыдущих установок
 systemctl stop nginx || true
 systemctl stop matrix-synapse || true
