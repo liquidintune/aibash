@@ -6,6 +6,7 @@ ELEMENT_PATH="/var/www/element"
 ADMIN_PATH="/opt/synapse-admin"
 SYNAPSE_CONF_DIR="/etc/matrix-synapse"
 SYNAPSE_DATA_DIR="/var/lib/matrix-synapse"
+SYNAPSE_VENV="/opt/synapse-venv"
 ADMIN_EMAIL="liquid.intune@gmail.com"
 TURN_SECRET=$(openssl rand -hex 32)
 TURN_USER="turnuser"
@@ -17,7 +18,7 @@ ADMIN_PASSWORD=$(openssl rand -base64 32)
 
 # Обновление системы и установка необходимых пакетов
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv python3-pip
+sudo apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv python3-pip build-essential
 
 # Установка Yarn
 sudo npm install -g yarn
@@ -66,13 +67,11 @@ if [ -f "/etc/turnserver.conf" ]; then
     sudo rm -f /etc/turnserver.conf
 fi
 
-# Добавление репозитория Synapse
-wget -qO - https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg | sudo apt-key add -
-echo "deb https://packages.matrix.org/debian/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/matrix-org.list
-
-# Установка Synapse
-sudo apt update
-sudo apt install -y matrix-synapse
+# Создание и настройка виртуальной среды для Synapse
+sudo mkdir -p ${SYNAPSE_VENV}
+sudo python3 -m venv ${SYNAPSE_VENV}
+sudo ${SYNAPSE_VENV}/bin/pip install --upgrade pip
+sudo ${SYNAPSE_VENV}/bin/pip install matrix-synapse
 
 # Настройка конфигурации Synapse
 sudo mkdir -p $SYNAPSE_CONF_DIR
@@ -115,8 +114,8 @@ After=network.target
 Type=simple
 User=synapse
 Group=synapse
-WorkingDirectory=${SYNAPSE_CONF_DIR}
-ExecStart=/usr/bin/python3 -m synapse.app.homeserver -c ${SYNAPSE_CONF_DIR}/homeserver.yaml
+WorkingDirectory=${SYNAPSE_DATA_DIR}
+ExecStart=${SYNAPSE_VENV}/bin/python -m synapse.app.homeserver -c ${SYNAPSE_CONF_DIR}/homeserver.yaml
 Restart=always
 RestartSec=10
 
@@ -140,7 +139,7 @@ until curl -sf http://localhost:8008/_matrix/client/versions; do
 done
 
 # Создание пользователя madmin
-sudo register_new_matrix_user -c $SYNAPSE_CONF_DIR/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a http://localhost:8008
+sudo ${SYNAPSE_VENV}/bin/register_new_matrix_user -c $SYNAPSE_CONF_DIR/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a http://localhost:8008
 
 # Установка и настройка Nginx
 sudo apt install -y nginx
