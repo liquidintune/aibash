@@ -19,6 +19,9 @@ ADMIN_CERT_DIR="/etc/letsencrypt/live/${ADMIN_DOMAIN}"
 apt update && apt upgrade -y
 apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm
 
+# Установка Yarn
+npm install -g yarn
+
 # Добавление репозитория Synapse
 wget -qO - https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg | apt-key add -
 echo "deb https://packages.matrix.org/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/matrix-org.list
@@ -59,7 +62,7 @@ EOF
 
 # Установка и настройка Nginx
 apt install -y nginx
-rm /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/default
 
 cat > /etc/nginx/sites-available/matrix <<EOF
 server {
@@ -124,7 +127,7 @@ server {
 }
 EOF
 
-ln -s /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
+ln -sf /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
 
 # Установка Certbot и получение SSL сертификата
 apt install -y certbot python3-certbot-nginx
@@ -170,18 +173,24 @@ systemctl enable coturn
 systemctl start coturn
 
 # Установка Element
+if [ -d "/var/www/element" ]; then
+    rm -rf /var/www/element
+fi
 git clone https://github.com/vector-im/element-web.git /var/www/element
 cd /var/www/element
-npm install
-npm run build
+yarn install
+yarn build
 
 # Установка Synapse Admin
+if [ -d "/opt/synapse-admin" ]; then
+    rm -rf /opt/synapse-admin
+fi
 git clone https://github.com/Awesome-Technologies/synapse-admin.git /opt/synapse-admin
 cd /opt/synapse-admin
-npm install
-npm run build
+yarn install
+yarn build
 
-ln -s /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse-admin
+ln -sf /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse-admin
 
 # Перезапуск Nginx
 systemctl restart nginx
