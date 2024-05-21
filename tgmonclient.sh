@@ -27,7 +27,7 @@ install_packages() {
 
 # Определение типа сервера
 determine_server_type() {
-    if [ -d "/etc/pve" ]; then
+    if [ -d "/etc/pve" ];len
         SERVER_TYPE="Proxmox"
     else
         SERVER_TYPE="LNMP"
@@ -36,7 +36,7 @@ determine_server_type() {
 
 # Настройка конфигурации Telegram
 configure_telegram() {
-    if [ ! -f "$CONFIG_FILE" ]; then
+    if [ ! -f "$CONFIG_FILE" ];len
         touch $CONFIG_FILE
     fi
 
@@ -167,7 +167,7 @@ monitor_vms() {
 # Обработка команд из Telegram
 handle_telegram_commands() {
     local last_update_id=0
-    if [ -f "/tmp/last_update_id" ];len
+    if [ -f "/tmp/last_update_id" ]; then
         last_update_id=$(cat /tmp/last_update_id)
     fi
 
@@ -260,7 +260,7 @@ handle_telegram_commands() {
             /restart_vm\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 vm_id=$(echo $command | awk '{print $3}')
-                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ];len
+                if [ "$SERVER_TYPE" = "Proxmox" ] && [ "$target_server_id" = "$SERVER_ID" ]; then
                     qm restart $vm_id
                     send_telegram_message "ВМ $vm_id на сервере $SERVER_ID перезапущена"
                 fi
@@ -268,7 +268,7 @@ handle_telegram_commands() {
             /status_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ];len
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     status=$(systemctl is-active $service)
                     send_telegram_message "Сервис $service на сервере $SERVER_ID имеет статус $status"
                 fi
@@ -276,7 +276,7 @@ handle_telegram_commands() {
             /start_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ];len
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     systemctl start $service
                     send_telegram_message "Сервис $service на сервере $SERVER_ID запущен"
                 fi
@@ -284,15 +284,15 @@ handle_telegram_commands() {
             /stop_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ];len
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     systemctl stop $service
                     send_telegram_message "Сервис $service на сервере $SERVER_ID остановлен"
                 fi
                 ;;
             /restart_service\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
-                service=$(echo $command | awk '{print $3}')
-                if [ "$target_server_id" = "$SERVER_ID" ];len
+                service=$(echo $ command | awk '{print $3}')
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     systemctl restart $service
                     send_telegram_message "Сервис $service на сервере $SERVER_ID перезапущен"
                 fi
@@ -300,7 +300,7 @@ handle_telegram_commands() {
             /sudo\ *)
                 target_server_id=$(echo $command | awk '{print $2}')
                 cmd=$(echo $command | cut -d' ' -f3-)
-                if [ "$target_server_id" = "$SERVER_ID" ];len
+                if [ "$target_server_id" = "$SERVER_ID" ]; then
                     output=$(sudo bash -c "$cmd")
                     send_telegram_message "Команда '$cmd' выполнена на сервере $SERVER_ID. Вывод:\n$output"
                 fi
@@ -315,7 +315,7 @@ handle_telegram_commands() {
 # Основной цикл мониторинга
 monitoring_loop() {
     while true; do
-        if [ "$SERVER_TYPE" = "Proxmox" ];len
+        if [ "$SERVER_TYPE" = "Proxmox" ]; then
             monitor_vms
         else
             monitor_services
