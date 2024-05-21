@@ -215,7 +215,7 @@ handle_telegram_commands() {
                 target_server_id=$(echo "$command" | awk '{print $2}')
                 if [[ "$SERVER_TYPE" = "Proxmox" && "$target_server_id" = "$SERVER_ID" ]]; then
                     local vms
-                    vms=$(qm list)
+                    vms=$(qm list | awk 'NR>1')
                     while IFS= read -r line; do
                         local vm_id vm_status
                         vm_id=$(echo "$line" | awk '{print $1}')
@@ -225,7 +225,7 @@ handle_telegram_commands() {
                         else
                             send_telegram_message "🔴 VM $vm_id не запущена на сервере $SERVER_ID"
                         fi
-                    done <<< "$(echo "$vms" | awk 'NR>1')"
+                    done <<< "$vms"
                 fi
                 ;;
             /status_vm\ *)
