@@ -27,6 +27,12 @@ systemctl stop nginx || true
 systemctl stop matrix-synapse || true
 systemctl stop coturn || true
 
+# Удаление старой службы systemd, если она существует
+rm -f /etc/systemd/system/matrix-synapse.service
+
+# Перезагрузка демона systemd для применения изменений
+systemctl daemon-reload
+
 if [ -f "/etc/nginx/sites-enabled/matrix" ]; then
     rm -f /etc/nginx/sites-enabled/matrix
 fi
@@ -96,7 +102,7 @@ voip:
   turn_allow_guests: true
 EOF
 
-# Обновление конфигурации systemd для Synapse
+# Создание новой службы systemd для Synapse
 cat > /etc/systemd/system/matrix-synapse.service <<EOF
 [Unit]
 Description=Synapse Matrix homeserver
@@ -104,16 +110,18 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 -m synapse.app.homeserver -c ${SYNAPSE_CONF_DIR}/homeserver.yaml
 User=synapse
 Group=synapse
-WorkingDirectory=${SYNAPSE_DATA_DIR}
+WorkingDirectory=${SYNAPSE_CONF_DIR}
+ExecStart=/usr/bin/python3 -m synapse.app.homeserver -c ${SYNAPSE_CONF_DIR}/homeserver.yaml
+Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Перезапуск systemd и включение Synapse
+# Перезагрузка демона systemd для применения новой службы
 systemctl daemon-reload
 systemctl enable matrix-synapse
 systemctl start matrix-synapse
