@@ -12,10 +12,12 @@ TURN_USER="turnuser"
 TURN_PASSWORD=$(openssl rand -base64 32)
 SYNAPSE_SHARED_SECRET=$(openssl rand -hex 32)
 CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
+ADMIN_USER="madmin"
+ADMIN_PASSWORD=$(openssl rand -base64 32)
 
 # Обновление системы и установка необходимых пакетов
 apt update && apt upgrade -y
-apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm
+apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv
 
 # Установка Yarn
 npm install -g yarn
@@ -61,9 +63,10 @@ echo "deb https://packages.matrix.org/debian/ $(lsb_release -cs) main" > /etc/ap
 
 # Установка Synapse
 apt update
-apt install -y matrix-synapse-py3
+apt install -y matrix-synapse
 
 # Настройка конфигурации Synapse
+mkdir -p $SYNAPSE_CONF_DIR
 cat > $SYNAPSE_CONF_DIR/homeserver.yaml <<EOF
 server_name: "${DOMAIN}"
 public_baseurl: "https://${DOMAIN}/"
@@ -92,6 +95,15 @@ voip:
   turn_user_lifetime: 86400000
   turn_allow_guests: true
 EOF
+
+# Запуск Synapse для создания пользователя
+systemctl start matrix-synapse
+
+# Создание пользователя madmin
+register_new_matrix_user -c $SYNAPSE_CONF_DIR/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a http://localhost:8008
+
+# Остановка Synapse для продолжения настройки
+systemctl stop matrix-synapse
 
 # Установка и настройка Nginx
 apt install -y nginx
@@ -255,3 +267,5 @@ echo "Shared secret для Synapse: ${SYNAPSE_SHARED_SECRET}"
 echo "TURN сервер пользователь: ${TURN_USER}"
 echo "TURN сервер пароль: ${TURN_PASSWORD}"
 echo "TURN сервер secret: ${TURN_SECRET}"
+echo "Admin пользователь: ${ADMIN_USER}"
+echo "Admin пароль: ${ADMIN_PASSWORD}"
