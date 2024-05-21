@@ -96,14 +96,18 @@ voip:
   turn_allow_guests: true
 EOF
 
-# Запуск Synapse для создания пользователя
+# Запуск Synapse
+systemctl enable matrix-synapse
 systemctl start matrix-synapse
+
+# Ожидание запуска Synapse
+echo "Ожидание запуска Synapse..."
+until curl -sf http://localhost:8008/_matrix/client/versions; do
+    sleep 5
+done
 
 # Создание пользователя madmin
 register_new_matrix_user -c $SYNAPSE_CONF_DIR/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a http://localhost:8008
-
-# Остановка Synapse для продолжения настройки
-systemctl stop matrix-synapse
 
 # Установка и настройка Nginx
 apt install -y nginx
@@ -258,8 +262,7 @@ ln -sf /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse
 systemctl restart nginx
 
 # Запуск Synapse
-systemctl enable matrix-synapse
-systemctl start matrix-synapse
+systemctl restart matrix-synapse
 
 # Вывод сообщения об успешной установке и ключей
 echo "Matrix Synapse, coturn, Element и Synapse Admin успешно установлены и настроены на ${DOMAIN}"
