@@ -50,7 +50,7 @@ if [ -d "${ADMIN_PATH}" ]; then
 fi
 
 # Удаление Synapse
-if [ -d "${SYNAPSE_CONF_DIR}" ]; then
+if [ -d "${SYNAPSE_CONF_DIR}" ];то
     rm -rf ${SYNAPSE_CONF_DIR}
 fi
 
@@ -125,6 +125,10 @@ EOF
 systemctl daemon-reload
 systemctl enable matrix-synapse
 systemctl start matrix-synapse
+
+# Проверка статуса Synapse и вывод логов
+systemctl status matrix-synapse
+journalctl -u matrix-synapse -n 50
 
 # Ожидание запуска Synapse
 echo "Ожидание запуска Synapse..."
