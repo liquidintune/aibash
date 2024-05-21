@@ -17,7 +17,7 @@ ADMIN_PASSWORD=$(openssl rand -base64 32)
 
 # Обновление системы и установка необходимых пакетов
 apt update && apt upgrade -y
-apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv
+apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv python3-pip
 
 # Установка Yarn
 npm install -g yarn
@@ -107,7 +107,7 @@ until curl -sf http://localhost:8008/_matrix/client/versions; do
 done
 
 # Создание пользователя madmin
-register_new_matrix_user -c $SYNAPSE_CONF_DIR/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a http://localhost:8008
+synctl register -u $ADMIN_USER -p $ADMIN_PASSWORD --admin
 
 # Установка и настройка Nginx
 apt install -y nginx
