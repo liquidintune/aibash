@@ -2,6 +2,8 @@
 
 # Определение переменных
 DOMAIN="chat.spkssp.ru"
+ELEMENT_DOMAIN="element.${DOMAIN}"
+ADMIN_DOMAIN="admin.${DOMAIN}"
 SYNAPSE_CONF_DIR="/etc/matrix-synapse"
 SYNAPSE_DATA_DIR="/var/lib/matrix-synapse"
 ADMIN_EMAIL="liquid.intune@gmail.com"
@@ -9,10 +11,13 @@ TURN_SECRET=$(openssl rand -hex 32)
 TURN_USER="turnuser"
 TURN_PASSWORD=$(openssl rand -base64 32)
 SYNAPSE_SHARED_SECRET=$(openssl rand -hex 32)
+CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
+ELEMENT_CERT_DIR="/etc/letsencrypt/live/${ELEMENT_DOMAIN}"
+ADMIN_CERT_DIR="/etc/letsencrypt/live/${ADMIN_DOMAIN}"
 
 # Обновление системы и установка необходимых пакетов
 apt update && apt upgrade -y
-apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common
+apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm
 
 # Добавление репозитория Synapse
 wget -qO - https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg | apt-key add -
@@ -54,10 +59,12 @@ EOF
 
 # Установка и настройка Nginx
 apt install -y nginx
+rm /etc/nginx/sites-enabled/default
+
 cat > /etc/nginx/sites-available/matrix <<EOF
 server {
     listen 80;
-    server_name ${DOMAIN};
+    server_name ${DOMAIN} ${ELEMENT_DOMAIN} ${ADMIN_DOMAIN};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -95,39 +102,40 @@ server {
 }
 
 server {
-    listen 80;
-    server_name element.${DOMAIN};
+    listen 443 ssl;
+    server_name ${ELEMENT_DOMAIN};
 
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
+    ssl_certificate /etc/letsencrypt/live/${ELEMENT_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${ELEMENT_DOMAIN}/privkey.pem;
 
-    location / {
-        return 301 https://\$host\$request_uri;
-    }
+    root /var/www/element;
+    index index.html;
 }
 
 server {
     listen 443 ssl;
-    server_name element.${DOMAIN};
+    server_name ${ADMIN_DOMAIN};
 
-    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/${ADMIN_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${ADMIN_DOMAIN}/privkey.pem;
 
-    root /var/www/element;
+    root /opt/synapse-admin;
     index index.html;
 }
 EOF
 
 ln -s /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
-rm /etc/nginx/sites-enabled/default
 
 # Установка Certbot и получение SSL сертификата
 apt install -y certbot python3-certbot-nginx
 mkdir -p /var/www/certbot
 
-if ! certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} -d element.${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
-    certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} -d element.${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
+if [ ! -d "$CERT_DIR" ] || [ ! -d "$ELEMENT_CERT_DIR" ] || [ ! -d "$ADMIN_CERT_DIR" ]; then
+    if ! certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} -d ${ELEMENT_DOMAIN} -d ${ADMIN_DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
+        certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} -d ${ELEMENT_DOMAIN} -d ${ADMIN_DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
+    fi
+else
+    echo "Сертификаты уже существуют и будут использованы."
 fi
 
 # Перезапуск Nginx для применения нового сертификата
@@ -162,39 +170,16 @@ systemctl enable coturn
 systemctl start coturn
 
 # Установка Element
-apt install -y unzip
-wget -O /tmp/element.zip https://github.com/vector-im/element-web/releases/download/v1.9.0/element-v1.9.0.zip
-unzip /tmp/element.zip -d /var/www/element
+git clone https://github.com/vector-im/element-web.git /var/www/element
+cd /var/www/element
+npm install
+npm run build
 
 # Установка Synapse Admin
-mkdir -p /opt/synapse-admin
-wget -O /opt/synapse-admin/synapse-admin.zip https://github.com/Awesome-Technologies/synapse-admin/releases/download/v0.8.0/synapse-admin-v0.8.0.zip
-unzip /opt/synapse-admin/synapse-admin.zip -d /opt/synapse-admin
-cat > /etc/nginx/sites-available/synapse-admin <<EOF
-server {
-    listen 80;
-    server_name admin.${DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://\$host\$request_uri;
-    }
-}
-
-server {
-    listen 443 ssl;
-    server_name admin.${DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-
-    root /opt/synapse-admin;
-    index index.html;
-}
-EOF
+git clone https://github.com/Awesome-Technologies/synapse-admin.git /opt/synapse-admin
+cd /opt/synapse-admin
+npm install
+npm run build
 
 ln -s /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse-admin
 
