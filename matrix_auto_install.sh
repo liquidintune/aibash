@@ -26,6 +26,10 @@ sudo npm install -g yarn
 # Создание пользователя и группы для Synapse
 sudo useradd --system --home-dir /var/lib/matrix-synapse --shell /bin/false synapse
 
+# Создание рабочих каталогов
+sudo mkdir -p ${SYNAPSE_CONF_DIR}
+sudo mkdir -p ${SYNAPSE_DATA_DIR}
+
 # Проверка и удаление предыдущих установок
 sudo systemctl stop nginx || true
 sudo systemctl stop matrix-synapse || true
