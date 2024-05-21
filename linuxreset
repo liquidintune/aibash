@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Определение менеджера пакетов
+if command -v apt-get &> /dev/null; then
+    PKG_MANAGER="apt-get"
+    PKG_PURGE="apt-get -y purge"
+    PKG_REMOVE="apt-get -y autoremove"
+    PKG_CLEAN="apt-get -y clean"
+    PKG_UPDATE="apt-get update"
+    PKG_UPGRADE="apt-get -y upgrade"
+elif command -v yum &> /dev/null; then
+    PKG_MANAGER="yum"
+    PKG_PURGE="yum -y remove"
+    PKG_REMOVE="yum -y autoremove"
+    PKG_CLEAN="yum clean all"
+    PKG_UPDATE="yum update"
+    PKG_UPGRADE="yum -y upgrade"
+elif command -v dnf &> /dev/null; then
+    PKG_MANAGER="dnf"
+    PKG_PURGE="dnf -y remove"
+    PKG_REMOVE="dnf -y autoremove"
+    PKG_CLEAN="dnf clean all"
+    PKG_UPDATE="dnf update"
+    PKG_UPGRADE="dnf -y upgrade"
+elif command -v pacman &> /dev/null; then
+    PKG_MANAGER="pacman"
+    PKG_PURGE="pacman -Rns --noconfirm"
+    PKG_REMOVE="pacman -Rns $(pacman -Qdtq) --noconfirm"
+    PKG_CLEAN="pacman -Scc --noconfirm"
+    PKG_UPDATE="pacman -Sy"
+    PKG_UPGRADE="pacman -Syu --noconfirm"
+elif command -v zypper &> /dev/null; then
+    PKG_MANAGER="zypper"
+    PKG_PURGE="zypper -n rm"
+    PKG_REMOVE="zypper -n rm -u"
+    PKG_CLEAN="zypper clean --all"
+    PKG_UPDATE="zypper ref"
+    PKG_UPGRADE="zypper -n up"
+else
+    echo "Не удалось определить менеджер пакетов."
+    exit 1
+fi
+
+# Список пакетов, которые необходимо сохранить
+PACKAGES_TO_KEEP="openssh-server net-tools ifupdown"
+
+# Список пользователей, которых необходимо сохранить (например, кроме системных пользователей)
+USERS_TO_KEEP=$(awk -F':' '{ if ($3 >= 1000 && $3 < 65534) print $1}' /etc/passwd)
+
+# Сохранение информации о пользователях
+cp /etc/passwd /etc/passwd.bak
+cp /etc/group /etc/group.bak
+cp /etc/shadow /etc/shadow.bak
+cp /etc/gshadow /etc/gshadow.bak
+
+# Сохранение конфигурации SSHD
+cp /etc/ssh/sshd_config /root/sshd_config.bak
+
+# Сохранение настроек сети
+cp -r /etc/network /root/network.bak
+
+# Удаление всех пакетов кроме необходимых
+if [ "$PKG_MANAGER" = "apt-get" ]; then
+    dpkg --get-selections | grep -v deinstall | awk '{print $1}' | grep -v -E "(essential-package|$PACKAGES_TO_KEEP)" | xargs $PKG_PURGE
+else
+    for pkg in $(rpm -qa | grep -v -E "(essential-package|$PACKAGES_TO_KEEP)"); do
+        $PKG_PURGE $pkg
+    done
+fi
+
+$PKG_REMOVE
+$PKG_CLEAN
+
+# Восстановление конфигурации SSHD
+mv /root/sshd_config.bak /etc/ssh/sshd_config
+
+# Восстановление настроек сети
+mv /root/network.bak /etc/network
+
+# Удаление всех конфигурационных файлов кроме тех, что в /etc/skel, /etc/ssh и /etc/network
+find /etc -type f ! -path "/etc/skel/*" ! -path "/etc/ssh/*" ! -path "/etc/network/*" -delete
+find /etc -type d -empty -delete
+
+# Восстановление информации о пользователях
+mv /etc/passwd.bak /etc/passwd
+mv /etc/group.bak /etc/group
+mv /etc/shadow.bak /etc/shadow
+mv /etc/gshadow.bak /etc/gshadow
+
+# Восстановление домашних директорий пользователей
+for USER in $USERS_TO_KEEP; do
+  cp -r /etc/skel /home/$USER
+  chown -R $USER:$USER /home/$USER
+done
+
+# Обновление системы до последней версии
+$PKG_UPDATE
+$PKG_UPGRADE
+
+# Перезагрузка системы
+reboot
