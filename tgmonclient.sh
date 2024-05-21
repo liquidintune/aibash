@@ -57,7 +57,8 @@ send_telegram_message() {
     while : ; do
         response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d chat_id="$TELEGRAM_CHAT_ID" \
-            -d text="$message")
+            -d text="$message" \
+            --data-urlencode "parse_mode=Markdown")
 
         if echo "$response" | grep -q '"ok":true'; then
             break
@@ -196,37 +197,35 @@ handle_telegram_commands() {
                 local target_server_id
                 target_server_id=$(echo "$command" | awk '{print $2}')
                 if [[ "$target_server_id" = "$SERVER_ID" ]]; then
-                    local services service_list=""
+                    local services
                     services=$(systemctl list-units --type=service --state=running | awk '{print $1}')
                     for service in $services; do
                         local status
                         status=$(systemctl is-active "$service")
                         if [[ "$status" = "active" ]]; then
-                            service_list+="🟢 $service\n"
+                            send_telegram_message "🟢 $service активен на сервере $SERVER_ID"
                         else
-                            service_list+="🔴 $service\n"
+                            send_telegram_message "🔴 $service не активен на сервере $SERVER_ID"
                         fi
                     done
-                    send_telegram_message "Включенные сервисы на сервере $SERVER_ID:\n$service_list"
                 fi
                 ;;
             /list_vms\ *)
                 local target_server_id
                 target_server_id=$(echo "$command" | awk '{print $2}')
                 if [[ "$SERVER_TYPE" = "Proxmox" && "$target_server_id" = "$SERVER_ID" ]]; then
-                    local vms vm_list=""
+                    local vms
                     vms=$(qm list)
                     while IFS= read -r line; do
                         local vm_id vm_status
                         vm_id=$(echo "$line" | awk '{print $1}')
                         vm_status=$(qm status "$vm_id" | awk '{print $2}')
                         if [[ "$vm_status" = "running" ]]; then
-                            vm_list+="🟢 VM $vm_id\n"
+                            send_telegram_message "🟢 VM $vm_id запущена на сервере $SERVER_ID"
                         else
-                            vm_list+="🔴 VM $vm_id\n"
+                            send_telegram_message "🔴 VM $vm_id не запущена на сервере $SERVER_ID"
                         fi
                     done <<< "$(echo "$vms" | awk 'NR>1')"
-                    send_telegram_message "Виртуальные машины на сервере $SERVER_ID:\n$vm_list"
                 fi
                 ;;
             /status_vm\ *)
