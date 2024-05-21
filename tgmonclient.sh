@@ -58,10 +58,10 @@ send_telegram_message() {
 
     while : ; do
         response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            -d chat_id="$TELEGRAM_CHAT_ID" \
-            -d text="$message" \
-            --data-urlencode "parse_mode=Markdown" \
-            -d reply_markup="$buttons")
+            --data-urlencode chat_id="$TELEGRAM_CHAT_ID" \
+            --data-urlencode text="$message" \
+            --data-urlencode parse_mode="Markdown" \
+            --data-urlencode reply_markup="$buttons")
 
         if echo "$response" | grep -q '"ok":true'; then
             break
@@ -84,7 +84,7 @@ send_telegram_callback_response() {
 
     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery" \
         -d callback_query_id="$callback_query_id" \
-        -d text="$message"
+        --data-urlencode text="$message"
 }
 
 log_action() {
@@ -105,16 +105,16 @@ monitor_services() {
             prev_status=$(grep "$service" "$PREV_SERVICE_STATUSES" | cut -d' ' -f2)
             if [[ "$status" != "$prev_status" ]]; then
                 if [[ "$status" = "active" ]]; then
-                    send_telegram_message "🟢 Сервис $service активен на сервере $SERVER_ID"
+                    send_telegram_message "🟢 Сервис $service активен на сервере $SERVER_ID" ""
                 else
-                    send_telegram_message "🔴 Сервис $service не активен на сервере $SERVER_ID"
+                    send_telegram_message "🔴 Сервис $service не активен на сервере $SERVER_ID" ""
                 fi
             fi
         else
             if [[ "$status" = "active" ]]; then
-                send_telegram_message "🟢 Сервис $service активен на сервере $SERVER_ID"
+                send_telegram_message "🟢 Сервис $service активен на сервере $SERVER_ID" ""
             else
-                send_telegram_message "🔴 Сервис $service не активен на сервере $SERVER_ID"
+                send_telegram_message "🔴 Сервис $service не активен на сервере $SERVER_ID" ""
             fi
         fi
     done
@@ -145,18 +145,18 @@ monitor_vms() {
 
                 if [[ "${current_statuses[$vm]}" != "$prev_status" ]]; then
                     if [[ "${current_statuses[$vm]}" = "running" ]]; then
-                        send_telegram_message "🟢 ВМ $vm запущена на сервере $SERVER_ID"
+                        send_telegram_message "🟢 ВМ $vm запущена на сервере $SERVER_ID" ""
                     else
-                        send_telegram_message "🔴 ВМ $vm не запущена на сервере $SERVER_ID"
+                        send_telegram_message "🔴 ВМ $vm не запущена на сервере $SERVER_ID" ""
                     fi
                 fi
             done < "$PREV_VM_STATUSES"
         else
             for vm in "${!current_statuses[@]}"; do
                 if [[ "${current_statuses[$vm]}" = "running" ]]; then
-                    send_telegram_message "🟢 ВМ $vm запущена на сервере $SERVER_ID"
+                    send_telegram_message "🟢 ВМ $vm запущена на сервере $SERVER_ID" ""
                 else
-                    send_telegram_message "🔴 ВМ $vm не запущена на сервере $SERVER_ID"
+                    send_telegram_message "🔴 ВМ $vm не запущена на сервере $SERVER_ID" ""
                 fi
             done
         fi
@@ -194,12 +194,11 @@ handle_telegram_commands() {
     local updates
     updates=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates?offset=$((last_update_id + 1))")
     echo "$updates" | jq -c '.result[]' | while IFS= read -r update; do
-        local update_id command chat_id callback_query_id message_id
+        local update_id command chat_id callback_query_id
         update_id=$(echo "$update" | jq -r '.update_id')
         command=$(echo "$update" | jq -r '.message.text // .callback_query.data')
         chat_id=$(echo "$update" | jq -r '.message.chat.id // .callback_query.message.chat.id')
         callback_query_id=$(echo "$update" | jq -r '.callback_query.id // empty')
-        message_id=$(echo "$update" | jq -r '.message.message_id // .callback_query.message.message_id // empty')
 
         last_update_id=$update_id
         echo "$last_update_id" > /tmp/last_update_id
@@ -233,11 +232,11 @@ handle_telegram_commands() {
                     esac
                     ;;
                 vm)
-
-
                     case "$action" in
                         status)
                             local status
+
+
                             status=$(qm status "$id" | awk '{print $2}')
                             send_telegram_callback_response "$callback_query_id" "ВМ $id имеет статус $status"
                             ;;
@@ -408,12 +407,6 @@ handle_telegram_commands() {
 
 monitoring_loop() {
     while true; do
-        if [[ "$SERVER_TYPE" = "Proxmox" ]]; then
-            monitor_vms
-        else
-            monitor_services
-        fi
-
         handle_telegram_commands
         sleep 5
     done
