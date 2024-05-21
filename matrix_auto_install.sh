@@ -20,6 +20,41 @@ apt install -y lsb-release wget apt-transport-https gnupg2 curl software-propert
 # Установка Yarn
 npm install -g yarn
 
+# Проверка и удаление предыдущих установок
+systemctl stop nginx || true
+systemctl stop matrix-synapse || true
+systemctl stop coturn || true
+
+if [ -f "/etc/nginx/sites-enabled/matrix" ]; then
+    rm -f /etc/nginx/sites-enabled/matrix
+fi
+
+if [ -f "/etc/nginx/sites-available/matrix" ]; then
+    rm -f /etc/nginx/sites-available/matrix
+fi
+
+if [ -d "${ELEMENT_PATH}" ]; then
+    rm -rf ${ELEMENT_PATH}
+fi
+
+if [ -d "${ADMIN_PATH}" ]; then
+    rm -rf ${ADMIN_PATH}
+fi
+
+# Удаление Synapse
+if [ -d "${SYNAPSE_CONF_DIR}" ]; then
+    rm -rf ${SYNAPSE_CONF_DIR}
+fi
+
+if [ -d "${SYNAPSE_DATA_DIR}" ]; then
+    rm -rf ${SYNAPSE_DATA_DIR}
+fi
+
+# Удаление coturn
+if [ -f "/etc/turnserver.conf" ]; then
+    rm -f /etc/turnserver.conf
+fi
+
 # Добавление репозитория Synapse
 wget -qO - https://packages.matrix.org/debian/matrix-org-archive-keyring.gpg | apt-key add -
 echo "deb https://packages.matrix.org/debian/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/matrix-org.list
@@ -101,14 +136,14 @@ server {
         proxy_set_header Connection "upgrade";
     }
 
-    location /element {
-        alias ${ELEMENT_PATH};
+    location /element/ {
+        alias ${ELEMENT_PATH}/;
         index index.html;
         try_files \$uri \$uri/ /index.html;
     }
 
-    location /admin {
-        alias ${ADMIN_PATH};
+    location /admin/ {
+        alias ${ADMIN_PATH}/;
         index index.html;
         try_files \$uri \$uri/ /index.html;
     }
@@ -121,9 +156,35 @@ ln -sf /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
 apt install -y certbot python3-certbot-nginx
 mkdir -p /var/www/certbot
 
+# Создание базовой конфигурации Nginx для Certbot
+cat > /etc/nginx/nginx.conf <<EOF
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+include /etc/nginx/modules-enabled/*.conf;
+
+events {
+    worker_connections 768;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*;
+}
+EOF
+
 if [ ! -d "$CERT_DIR" ]; then
-    if ! certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
-        certbot certonly --webroot --webroot-path /var/www/certbot -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
+    if ! certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
+        certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
     fi
 else
     echo "Сертификаты уже существуют и будут использованы."
@@ -166,22 +227,18 @@ systemctl enable coturn
 systemctl start coturn
 
 # Установка Element
-if [ -d "${ELEMENT_PATH}" ]; then
-    rm -rf ${ELEMENT_PATH}
-fi
 git clone https://github.com/vector-im/element-web.git ${ELEMENT_PATH}
 cd ${ELEMENT_PATH}
 yarn install
 yarn build
+chown -R www-data:www-data ${ELEMENT_PATH}
 
 # Установка Synapse Admin
-if [ -d "${ADMIN_PATH}" ]; then
-    rm -rf ${ADMIN_PATH}
-fi
 git clone https://github.com/Awesome-Technologies/synapse-admin.git ${ADMIN_PATH}
 cd ${ADMIN_PATH}
 yarn install
 yarn build
+chown -R www-data:www-data ${ADMIN_PATH}
 
 ln -sf /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse-admin
 
