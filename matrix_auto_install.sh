@@ -17,7 +17,7 @@ ADMIN_PASSWORD=$(openssl rand -base64 32)
 
 # Обновление системы и установка необходимых пакетов
 apt update && apt upgrade -y
-apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-pip
+apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv python3-pip
 
 # Установка Yarn
 npm install -g yarn
@@ -96,7 +96,25 @@ voip:
   turn_allow_guests: true
 EOF
 
-# Запуск Synapse
+# Обновление конфигурации systemd для Synapse
+cat > /etc/systemd/system/matrix-synapse.service <<EOF
+[Unit]
+Description=Synapse Matrix homeserver
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 -m synapse.app.homeserver -c ${SYNAPSE_CONF_DIR}/homeserver.yaml
+User=synapse
+Group=synapse
+WorkingDirectory=${SYNAPSE_DATA_DIR}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Перезапуск systemd и включение Synapse
+systemctl daemon-reload
 systemctl enable matrix-synapse
 systemctl start matrix-synapse
 
@@ -261,7 +279,7 @@ ln -sf /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse
 # Перезапуск Nginx
 systemctl restart nginx
 
-# Запуск Synapse
+# Перезапуск Synapse
 systemctl restart matrix-synapse
 
 # Вывод сообщения об успешной установке и ключей
