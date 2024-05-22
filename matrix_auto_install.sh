@@ -59,7 +59,7 @@ registration_shared_secret: "${SYNAPSE_SHARED_SECRET}"
 
 trusted_key_servers:
   - server_name: "matrix.org"
-    verify_keys: []
+    verify_keys: {}
 
 suppress_key_server_warning: true
 
