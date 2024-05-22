@@ -43,6 +43,9 @@ services:
       - SYNAPSE_SERVER_NAME=${DOMAIN}
       - SYNAPSE_REPORT_STATS=yes
       - SYNAPSE_REGISTRATION_SHARED_SECRET=${SYNAPSE_SHARED_SECRET}
+    ports:
+      - 8008:8008
+      - 8448:8448
     restart: always
 
   coturn:
@@ -61,6 +64,9 @@ services:
       - TURNSERVER_RELAY_IP=0.0.0.0
       - TURNSERVER_MIN_PORT=49152
       - TURNSERVER_MAX_PORT=65535
+    ports:
+      - 3478:3478
+      - 3478:3478/udp
     restart: always
 
   element:
@@ -68,11 +74,15 @@ services:
     container_name: element
     volumes:
       - ./element:/app
+    ports:
+      - 8081:80
     restart: always
 
   synapse-admin:
     image: awesometechnologies/synapse-admin
     container_name: synapse-admin
+    ports:
+      - 8082:80
     restart: always
 EOF
 
@@ -133,7 +143,7 @@ server {
     }
 
     location /element/ {
-        proxy_pass http://localhost:8081;
+        proxy_pass http://localhost:8081/;
         proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header Host \$host;
         proxy_http_version 1.1;
@@ -142,7 +152,7 @@ server {
     }
 
     location /admin/ {
-        proxy_pass http://localhost:8082;
+        proxy_pass http://localhost:8082/;
         proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header Host \$host;
         proxy_http_version 1.1;
@@ -155,61 +165,7 @@ EOF
 sudo ln -sf /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
 sudo systemctl restart nginx
 
-# Обновление Docker Compose файла для использования нестандартных портов
-sudo tee $DATA_PATH/docker-compose.yml <<EOF
-version: '3.6'
-
-services:
-  synapse:
-    image: matrixdotorg/synapse:latest
-    container_name: synapse
-    volumes:
-      - ./synapse:/data
-    environment:
-      - SYNAPSE_SERVER_NAME=${DOMAIN}
-      - SYNAPSE_REPORT_STATS=yes
-      - SYNAPSE_REGISTRATION_SHARED_SECRET=${SYNAPSE_SHARED_SECRET}
-    ports:
-      - 8008:8008
-      - 8448:8448
-    restart: always
-
-  coturn:
-    image: instrumentisto/coturn
-    container_name: coturn
-    volumes:
-      - ./coturn:/etc/coturn
-    environment:
-      - TURNSERVER_REALM=${DOMAIN}
-      - TURNSERVER_LISTEN_IP=0.0.0.0
-      - TURNSERVER_EXTERNAL_IP=${DOMAIN}
-      - TURNSERVER_PORT=3478
-      - TURNSERVER_CERT_FILE=/etc/coturn/ssl/fullchain.pem
-      - TURNSERVER_PKEY_FILE=/etc/coturn/ssl/privkey.pem
-      - TURNSERVER_STATIC_AUTH_SECRET=${TURN_SECRET}
-      - TURNSERVER_RELAY_IP=0.0.0.0
-      - TURNSERVER_MIN_PORT=49152
-      - TURNSERVER_MAX_PORT=65535
-    restart: always
-
-  element:
-    image: vectorim/element-web
-    container_name: element
-    volumes:
-      - ./element:/app
-    ports:
-      - 8081:80
-    restart: always
-
-  synapse-admin:
-    image: awesometechnologies/synapse-admin
-    container_name: synapse-admin
-    ports:
-      - 8082:80
-    restart: always
-EOF
-
-# Перезапуск Docker Compose
+# Перезапуск Docker Compose для применения изменений
 cd $DATA_PATH
 sudo docker-compose down
 sudo docker-compose up -d
