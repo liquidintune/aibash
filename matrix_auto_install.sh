@@ -59,6 +59,9 @@ voip:
   turn_allow_guests: true
 EOF
 
+# Исправление прав на каталог для Synapse
+sudo chown -R 991:991 $DATA_PATH/synapse
+
 # Создание Docker Compose файла
 sudo tee $DATA_PATH/docker-compose.yml <<EOF
 version: '3.6'
