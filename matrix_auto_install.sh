@@ -74,6 +74,7 @@ database:
     cp_max: 10
 
 enable_registration: true
+enable_registration_without_verification: true
 report_stats: yes
 
 # Enable VoIP
@@ -168,7 +169,7 @@ cd $DATA_PATH
 sudo docker-compose up -d
 
 # Настройка сертификатов с помощью Certbot
-if [ ! -d "$CERT_DIR" ]; then
+if [ ! -d "$CERT_DIR" ];then
     if ! sudo certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
         sudo certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
     fi
