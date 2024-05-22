@@ -13,6 +13,9 @@ CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 ADMIN_USER="madmin"
 ADMIN_PASSWORD=$(openssl rand -base64 32)
 DATA_PATH="/opt/matrix"
+POSTGRES_USER="synapse"
+POSTGRES_PASSWORD=$(openssl rand -base64 32)
+POSTGRES_DB="synapse"
 
 # Обновление системы и установка необходимых пакетов
 sudo apt update && sudo apt upgrade -y
@@ -54,6 +57,22 @@ media_store_path: "/data/media_store"
 
 registration_shared_secret: "${SYNAPSE_SHARED_SECRET}"
 
+trusted_key_servers:
+  - server_name: "matrix.org"
+    verify_keys: []
+
+suppress_key_server_warning: true
+
+database:
+  name: "psycopg2"
+  args:
+    user: "${POSTGRES_USER}"
+    password: "${POSTGRES_PASSWORD}"
+    database: "${POSTGRES_DB}"
+    host: "postgres"
+    cp_min: 5
+    cp_max: 10
+
 enable_registration: true
 report_stats: yes
 
@@ -78,9 +97,22 @@ sudo tee $DATA_PATH/docker-compose.yml <<EOF
 version: '3.6'
 
 services:
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
   synapse:
     image: matrixdotorg/synapse:latest
     container_name: synapse
+    depends_on:
+      - postgres
     volumes:
       - ./synapse:/data
     environment:
@@ -126,6 +158,9 @@ services:
     ports:
       - 8082:80
     restart: always
+
+volumes:
+  postgres_data:
 EOF
 
 # Запуск Docker Compose
@@ -220,3 +255,5 @@ echo "TURN сервер пароль: ${TURN_PASSWORD}"
 echo "TURN сервер secret: ${TURN_SECRET}"
 echo "Admin пользователь: ${ADMIN_USER}"
 echo "Admin пароль: ${ADMIN_PASSWORD}"
+echo "Postgres пользователь: ${POSTGRES_USER}"
+echo "Postgres пароль: ${POSTGRES_PASSWORD}"
