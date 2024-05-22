@@ -46,6 +46,9 @@ listeners:
       - names: [federation]
     tls: true
 
+tls_certificate_path: "/data/tls/fullchain.pem"
+tls_private_key_path: "/data/tls/privkey.pem"
+
 registration_shared_secret: "${SYNAPSE_SHARED_SECRET}"
 
 enable_registration: true
@@ -58,6 +61,11 @@ voip:
   turn_user_lifetime: 86400000
   turn_allow_guests: true
 EOF
+
+# Копирование сертификатов в нужное место
+sudo mkdir -p $DATA_PATH/synapse/tls
+sudo cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem $DATA_PATH/synapse/tls/fullchain.pem
+sudo cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem $DATA_PATH/synapse/tls/privkey.pem
 
 # Исправление прав на каталог для Synapse
 sudo chown -R 991:991 $DATA_PATH/synapse
