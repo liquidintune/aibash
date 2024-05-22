@@ -4,9 +4,6 @@
 DOMAIN="chat.spkssp.ru"
 ELEMENT_PATH="/var/www/element"
 ADMIN_PATH="/opt/synapse-admin"
-SYNAPSE_CONF_DIR="/etc/matrix-synapse"
-SYNAPSE_DATA_DIR="/var/lib/matrix-synapse"
-SYNAPSE_VENV="/opt/synapse-venv"
 ADMIN_EMAIL="liquid.intune@gmail.com"
 TURN_SECRET=$(openssl rand -hex 32)
 TURN_USER="turnuser"
@@ -15,140 +12,97 @@ SYNAPSE_SHARED_SECRET=$(openssl rand -hex 32)
 CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
 ADMIN_USER="madmin"
 ADMIN_PASSWORD=$(openssl rand -base64 32)
+DATA_PATH="/opt/matrix"
 
 # Обновление системы и установка необходимых пакетов
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm python3-venv python3-pip build-essential
+sudo apt install -y lsb-release wget apt-transport-https gnupg2 curl software-properties-common git nodejs npm certbot python3-certbot-nginx
 
-# Установка Yarn
-sudo npm install -g yarn
+# Установка Docker и Docker Compose
+sudo apt install -y docker.io
+sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+sudo chmod +x /usr/local/bin/docker-compose
 
-# Создание пользователя и группы для Synapse
-sudo useradd --system --home-dir /var/lib/matrix-synapse --shell /bin/false synapse
+# Создание структуры каталогов
+sudo mkdir -p $DATA_PATH/synapse
+sudo mkdir -p $DATA_PATH/coturn
+sudo mkdir -p $ELEMENT_PATH
+sudo mkdir -p $ADMIN_PATH
 
-# Создание рабочих каталогов
-sudo mkdir -p ${SYNAPSE_CONF_DIR}
-sudo mkdir -p ${SYNAPSE_DATA_DIR}
+# Создание Docker Compose файла
+sudo tee $DATA_PATH/docker-compose.yml <<EOF
+version: '3.6'
 
-# Проверка и удаление предыдущих установок
-sudo systemctl stop nginx || true
-sudo systemctl stop matrix-synapse || true
-sudo systemctl stop coturn || true
+services:
+  synapse:
+    image: matrixdotorg/synapse:latest
+    container_name: synapse
+    volumes:
+      - ./synapse:/data
+    environment:
+      - SYNAPSE_SERVER_NAME=${DOMAIN}
+      - SYNAPSE_REPORT_STATS=yes
+      - SYNAPSE_REGISTRATION_SHARED_SECRET=${SYNAPSE_SHARED_SECRET}
+    ports:
+      - 8008:8008
+      - 8448:8448
+    restart: always
 
-# Удаление старой службы systemd, если она существует
-sudo rm -f /etc/systemd/system/matrix-synapse.service
+  coturn:
+    image: instrumentisto/coturn
+    container_name: coturn
+    volumes:
+      - ./coturn:/etc/coturn
+    environment:
+      - TURNSERVER_REALM=${DOMAIN}
+      - TURNSERVER_LISTEN_IP=0.0.0.0
+      - TURNSERVER_EXTERNAL_IP=${DOMAIN}
+      - TURNSERVER_PORT=3478
+      - TURNSERVER_CERT_FILE=/etc/coturn/ssl/fullchain.pem
+      - TURNSERVER_PKEY_FILE=/etc/coturn/ssl/privkey.pem
+      - TURNSERVER_STATIC_AUTH_SECRET=${TURN_SECRET}
+      - TURNSERVER_RELAY_IP=0.0.0.0
+      - TURNSERVER_MIN_PORT=49152
+      - TURNSERVER_MAX_PORT=65535
+    ports:
+      - 3478:3478
+      - 3478:3478/udp
+    restart: always
 
-# Перезагрузка демона systemd для применения изменений
-sudo systemctl daemon-reload
+  element:
+    image: vectorim/element-web
+    container_name: element
+    volumes:
+      - ./element:/app
+    ports:
+      - 80:80
+    restart: always
 
-if [ -f "/etc/nginx/sites-enabled/matrix" ]; then
-    sudo rm -f /etc/nginx/sites-enabled/matrix
-fi
-
-if [ -f "/etc/nginx/sites-available/matrix" ]; then
-    sudo rm -f /etc/nginx/sites-available/matrix
-fi
-
-if [ -d "${ELEMENT_PATH}" ]; then
-    sudo rm -rf ${ELEMENT_PATH}
-fi
-
-if [ -d "${ADMIN_PATH}" ]; then
-    sudo rm -rf ${ADMIN_PATH}
-fi
-
-# Удаление Synapse
-if [ -d "${SYNAPSE_CONF_DIR}" ]; then
-    sudo rm -rf ${SYNAPSE_CONF_DIR}
-fi
-
-if [ -d "${SYNAPSE_DATA_DIR}" ]; then
-    sudo rm -rf ${SYNAPSE_DATA_DIR}
-fi
-
-# Удаление coturn
-if [ -f "/etc/turnserver.conf" ]; then
-    sudo rm -f /etc/turnserver.conf
-fi
-
-# Создание и настройка виртуальной среды для Synapse
-sudo mkdir -p ${SYNAPSE_VENV}
-sudo python3 -m venv ${SYNAPSE_VENV}
-sudo ${SYNAPSE_VENV}/bin/pip install --upgrade pip
-sudo ${SYNAPSE_VENV}/bin/pip install matrix-synapse
-
-# Настройка конфигурации Synapse
-sudo mkdir -p $SYNAPSE_CONF_DIR
-sudo tee $SYNAPSE_CONF_DIR/homeserver.yaml <<EOF
-server_name: "${DOMAIN}"
-public_baseurl: "https://${DOMAIN}/"
-
-listeners:
-  - port: 8008
-    type: http
-    resources:
-      - names: [client, federation]
-    tls: false
-  - port: 8448
-    type: http
-    resources:
-      - names: [federation]
-    tls: true
-
-registration_shared_secret: "${SYNAPSE_SHARED_SECRET}"
-
-enable_registration: true
-report_stats: yes
-
-# Enable VoIP
-voip:
-  turn_uris: ["turn:${DOMAIN}:3478?transport=udp", "turn:${DOMAIN}:3478?transport=tcp"]
-  turn_shared_secret: "${TURN_SECRET}"
-  turn_user_lifetime: 86400000
-  turn_allow_guests: true
+  synapse-admin:
+    image: awesometechnologies/synapse-admin
+    container_name: synapse-admin
+    ports:
+      - 8080:80
+    restart: always
 EOF
 
-# Создание новой службы systemd для Synapse
-sudo tee /etc/systemd/system/matrix-synapse.service <<EOF
-[Unit]
-Description=Synapse Matrix homeserver
-After=network.target
+# Запуск Docker Compose
+cd $DATA_PATH
+sudo docker-compose up -d
 
-[Service]
-Type=simple
-User=synapse
-Group=synapse
-WorkingDirectory=${SYNAPSE_DATA_DIR}
-ExecStart=${SYNAPSE_VENV}/bin/python -m synapse.app.homeserver -c ${SYNAPSE_CONF_DIR}/homeserver.yaml
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Перезагрузка демона systemd для применения новой службы
-sudo systemctl daemon-reload
-sudo systemctl enable matrix-synapse
-sudo systemctl start matrix-synapse
-
-# Проверка статуса Synapse и вывод логов
-sudo systemctl status matrix-synapse
-sudo journalctl -u matrix-synapse -n 50
-
-# Ожидание запуска Synapse
-echo "Ожидание запуска Synapse..."
-until curl -sf http://localhost:8008/_matrix/client/versions; do
-    sleep 5
-done
+# Настройка сертификатов с помощью Certbot
+if [ ! -d "$CERT_DIR" ]; then
+    if ! sudo certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
+        sudo certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
+    fi
+else
+    echo "Сертификаты уже существуют и будут использованы."
+fi
 
 # Создание пользователя madmin
-sudo ${SYNAPSE_VENV}/bin/register_new_matrix_user -c $SYNAPSE_CONF_DIR/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a http://localhost:8008
+docker exec -it synapse register_new_matrix_user -c /data/homeserver.yaml -u $ADMIN_USER -p $ADMIN_PASSWORD -a
 
-# Установка и настройка Nginx
-sudo apt install -y nginx
-sudo rm -f /etc/nginx/sites-enabled/default
-
+# Настройка и перезапуск Nginx
 sudo tee /etc/nginx/sites-available/matrix <<EOF
 server {
     listen 80;
@@ -179,8 +133,8 @@ server {
         proxy_set_header Connection "upgrade";
     }
 
-    location /_matrix/federation/v1 {
-        proxy_pass http://localhost:8448;
+    location /element/ {
+        proxy_pass http://localhost:80;
         proxy_set_header X-Forwarded-For \$remote_addr;
         proxy_set_header Host \$host;
         proxy_http_version 1.1;
@@ -188,119 +142,21 @@ server {
         proxy_set_header Connection "upgrade";
     }
 
-    location /element/ {
-        alias ${ELEMENT_PATH}/;
-        index index.html;
-        try_files \$uri \$uri/ /index.html;
-    }
-
     location /admin/ {
-        alias ${ADMIN_PATH}/;
-        index index.html;
-        try_files \$uri \$uri/ /index.html;
+        proxy_pass http://localhost:8080;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_set_header Host \$host;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
     }
 }
 EOF
 
 sudo ln -sf /etc/nginx/sites-available/matrix /etc/nginx/sites-enabled/matrix
-
-# Установка Certbot и получение SSL сертификата
-sudo apt install -y certbot python3-certbot-nginx
-sudo mkdir -p /var/www/certbot
-
-# Создание базовой конфигурации Nginx для Certbot
-sudo tee /etc/nginx/nginx.conf <<EOF
-user www-data;
-worker_processes auto;
-pid /run/nginx.pid;
-include /etc/nginx/modules-enabled/*.conf;
-
-events {
-    worker_connections 768;
-}
-
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-
-    include /etc/nginx/conf.d/*.conf;
-    include /etc/nginx/sites-enabled/*;
-}
-EOF
-
-if [ ! -d "$CERT_DIR" ]; then
-    if ! sudo certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive; then
-        sudo certbot --nginx -d ${DOMAIN} --agree-tos --email ${ADMIN_EMAIL} --non-interactive --force-renew
-    fi
-else
-    echo "Сертификаты уже существуют и будут использованы."
-fi
-
-# Проверка наличия сертификатов перед перезапуском Nginx
-if [ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]; then
-    sudo systemctl restart nginx
-else
-    echo "Ошибка: Сертификаты не найдены."
-    exit 1
-fi
-
-# Установка и настройка coturn
-sudo apt install -y coturn
-
-sudo tee /etc/turnserver.conf <<EOF
-listening-port=3478
-tls-listening-port=5349
-listening-ip=0.0.0.0
-relay-ip=0.0.0.0
-min-port=49152
-max-port=65535
-realm=${DOMAIN}
-server-name=${DOMAIN}
-fingerprint
-lt-cred-mech
-use-auth-secret
-static-auth-secret=${TURN_SECRET}
-user=${TURN_USER}:${TURN_PASSWORD}
-total-quota=100
-bps-capacity=0
-stale-nonce
-no-loopback-peers
-no-multicast-peers
-EOF
-
-# Включение и запуск coturn
-sudo systemctl enable coturn
-sudo systemctl start coturn
-
-# Установка Element
-sudo git clone https://github.com/vector-im/element-web.git ${ELEMENT_PATH}
-cd ${ELEMENT_PATH}
-sudo yarn install
-sudo yarn build
-sudo chown -R www-data:www-data ${ELEMENT_PATH}
-
-# Установка Synapse Admin
-sudo git clone https://github.com/Awesome-Technologies/synapse-admin.git ${ADMIN_PATH}
-cd ${ADMIN_PATH}
-sudo yarn install
-sudo yarn build
-sudo chown -R www-data:www-data ${ADMIN_PATH}
-
-sudo ln -sf /etc/nginx/sites-available/synapse-admin /etc/nginx/sites-enabled/synapse-admin
-
-# Перезапуск Nginx
 sudo systemctl restart nginx
 
-# Перезапуск Synapse
-sudo systemctl restart matrix-synapse
-
-# Вывод сообщения об успешной установке и ключей
+# Вывод информации
 echo "Matrix Synapse, coturn, Element и Synapse Admin успешно установлены и настроены на ${DOMAIN}"
 echo "Shared secret для Synapse: ${SYNAPSE_SHARED_SECRET}"
 echo "TURN сервер пользователь: ${TURN_USER}"
