@@ -29,6 +29,36 @@ sudo mkdir -p $DATA_PATH/coturn
 sudo mkdir -p $ELEMENT_PATH
 sudo mkdir -p $ADMIN_PATH
 
+# Создание конфигурационного файла homeserver.yaml для Synapse
+sudo tee $DATA_PATH/synapse/homeserver.yaml <<EOF
+server_name: "${DOMAIN}"
+public_baseurl: "https://${DOMAIN}/"
+
+listeners:
+  - port: 8008
+    type: http
+    resources:
+      - names: [client, federation]
+    tls: false
+  - port: 8448
+    type: http
+    resources:
+      - names: [federation]
+    tls: true
+
+registration_shared_secret: "${SYNAPSE_SHARED_SECRET}"
+
+enable_registration: true
+report_stats: yes
+
+# Enable VoIP
+voip:
+  turn_uris: ["turn:${DOMAIN}:3478?transport=udp", "turn:${DOMAIN}:3478?transport=tcp"]
+  turn_shared_secret: "${TURN_SECRET}"
+  turn_user_lifetime: 86400000
+  turn_allow_guests: true
+EOF
+
 # Создание Docker Compose файла
 sudo tee $DATA_PATH/docker-compose.yml <<EOF
 version: '3.6'
@@ -40,9 +70,7 @@ services:
     volumes:
       - ./synapse:/data
     environment:
-      - SYNAPSE_SERVER_NAME=${DOMAIN}
-      - SYNAPSE_REPORT_STATS=yes
-      - SYNAPSE_REGISTRATION_SHARED_SECRET=${SYNAPSE_SHARED_SECRET}
+      - SYNAPSE_CONFIG_PATH=/data/homeserver.yaml
     ports:
       - 8008:8008
       - 8448:8448
