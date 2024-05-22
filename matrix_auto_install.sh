@@ -25,6 +25,7 @@ sudo chmod +x /usr/local/bin/docker-compose
 
 # Создание структуры каталогов
 sudo mkdir -p $DATA_PATH/synapse
+sudo mkdir -p $DATA_PATH/synapse/media_store
 sudo mkdir -p $DATA_PATH/coturn
 sudo mkdir -p $ELEMENT_PATH
 sudo mkdir -p $ADMIN_PATH
@@ -48,6 +49,8 @@ listeners:
 
 tls_certificate_path: "/data/tls/fullchain.pem"
 tls_private_key_path: "/data/tls/privkey.pem"
+
+media_store_path: "/data/media_store"
 
 registration_shared_secret: "${SYNAPSE_SHARED_SECRET}"
 
