@@ -110,7 +110,7 @@ send_telegram_message() {
 
         for part in "${parts[@]}"; do
             local response=$(send_request "$part")
-            log "Sent part of a long message to Telegram"
+            log "Sent part of a long message to Telegram: $part"
             handle_response "$response"
         done
     else
@@ -249,9 +249,10 @@ handle_telegram_commands() {
                     local cmd_server_id=$(echo "$message_text" | awk '{print $2}')
                     local args=$(echo "$message_text" | cut -d' ' -f3-)
 
-                    log "Received command: $command from chat_id: $chat_id"
+                    log "Received command: $command from chat_id: $chat_id with server ID: $cmd_server_id"
 
                     if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                        log "Executing command: $command for server ID: $cmd_server_id"
                         case $command in
                             /server_id)
                                 send_telegram_message "Server ID: $SERVER_ID"
