@@ -7,13 +7,11 @@ SECRET_FILE="$HOME/.telegram_bot_secret"
 STATUS_FILE="/tmp/monitoring_status"
 VM_STATUS_FILE="/tmp/vm_monitoring_status"
 
-# Функция для логирования
 log() {
     local message="$1"
     echo "$(date +'%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
 }
 
-# Функция для установки необходимых пакетов
 install_packages() {
     if [[ -f /etc/debian_version ]]; then
         log "Debian-based OS detected"
@@ -34,7 +32,6 @@ install_packages() {
     fi
 }
 
-# Функция для определения типа сервера
 determine_server_type() {
     if dpkg -l | grep -q pve-manager; then
         echo "Proxmox"
@@ -43,10 +40,8 @@ determine_server_type() {
     fi
 }
 
-# Установка пакетов
 install_packages
 
-# Определение типа сервера
 SERVER_TYPE=$(determine_server_type)
 DEFAULT_SERVICES_TO_MONITOR=""
 
@@ -56,7 +51,6 @@ else
     DEFAULT_SERVICES_TO_MONITOR="nginx,mysql,php-fpm"
 fi
 
-# Настройка конфигурации Telegram
 configure_telegram() {
     if [ ! -f "$CONFIG_FILE" ]; then
         read -p "Enter Telegram bot token: " TELEGRAM_BOT_TOKEN
@@ -77,67 +71,23 @@ configure_telegram() {
     fi
 }
 
-# Настройка конфигурации
 configure_telegram
 
-# Функция для отправки сообщений в Telegram с обработкой ошибок
 send_telegram_message() {
     local message="$1"
     local keyboard="$2"
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
-    local max_length=4096
+    local data
 
-    # Функция для отправки HTTP запроса
-    send_request() {
-        local text="$1"
-        local data
-        if [ -n "$keyboard" ]; then
-            data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" --argjson keyboard "$keyboard" '{chat_id: $chat_id, text: $text, reply_markup: {inline_keyboard: $keyboard}}')
-        else
-            data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" '{chat_id: $chat_id, text: $text}')
-        fi
-        curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data"
-    }
-
-    # Разбиваем сообщение на части, если оно слишком длинное
-    if [ ${#message} -gt $max_length ]; then
-        local parts=()
-        while [ ${#message} -gt $max_length ]; do
-            parts+=("${message:0:$max_length}")
-            message="${message:$max_length}"
-        done
-        parts+=("$message")
-
-        for part in "${parts[@]}"; do
-            local response=$(send_request "$part")
-            log "Sent part of a long message to Telegram: $part"
-            handle_response "$response"
-        done
+    if [ -n "$keyboard" ]; then
+        data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" --argjson keyboard "$keyboard" '{chat_id: $chat_id, text: $text, reply_markup: {inline_keyboard: $keyboard}}')
     else
-        local response=$(send_request "$message")
-        log "Sent message to Telegram: $message"
-        handle_response "$response"
+        data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" '{chat_id: $chat_id, text: $text}')
     fi
+
+    curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data" > /dev/null
 }
 
-# Функция для обработки ответа от Telegram API
-handle_response() {
-    local response="$1"
-    local ok=$(echo "$response" | jq -r '.ok')
-    if [ "$ok" != "true" ]; then
-        local error_code=$(echo "$response" | jq -r '.error_code')
-        if [ "$error_code" == "429" ]; then
-            local retry_after=$(echo "$response" | jq -r '.parameters.retry_after')
-            log "Received Too Many Requests error. Retrying after $retry_after seconds."
-            sleep "$retry_after"
-            send_telegram_message "$message"
-        else
-            log "Error sending message: $response"
-        fi
-    fi
-}
-
-# Функция для мониторинга сервисов systemd
 monitor_services() {
     local services=($(echo $SERVICES_TO_MONITOR | tr ',' ' '))
     local status_changed=false
@@ -172,7 +122,6 @@ monitor_services() {
     fi
 }
 
-# Функция для мониторинга виртуальных машин (только для Proxmox)
 monitor_vms() {
     if [ "$SERVER_TYPE" == "Proxmox" ]; then
         local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
@@ -212,7 +161,6 @@ monitor_vms() {
     fi
 }
 
-# Основной цикл мониторинга
 monitoring_loop() {
     while true; do
         monitor_services
@@ -223,7 +171,6 @@ monitoring_loop() {
     done
 }
 
-# Функция для обработки команд из Telegram
 handle_telegram_commands() {
     local last_update_id=0
 
@@ -239,9 +186,8 @@ handle_telegram_commands() {
             local update_id=$(_jq '.update_id')
             local message_text=$(_jq '.message.text')
             local chat_id=$(_jq '.message.chat.id')
-            local from_id=$(_jq '.message.from.id')
 
-            log "Processing update_id: $update_id"
+            log "Processing update_id: $update_id, chat_id: $chat_id, message_text: $message_text"
 
             if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
                 if [ -n "$message_text" ]; then
@@ -420,9 +366,7 @@ EOF
     done
 }
 
-# Отправка сообщения о запуске скрипта
 send_telegram_message "Monitoring script started on server $SERVER_ID."
 
-# Запуск обработки команд и мониторинга
 handle_telegram_commands &
 monitoring_loop
