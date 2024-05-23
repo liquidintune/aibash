@@ -253,6 +253,9 @@ handle_telegram_commands() {
 
                     if [ "$cmd_server_id" == "$SERVER_ID" ]; then
                         case $command in
+                            /server_id)
+                                send_telegram_message "Server ID: $SERVER_ID"
+                                ;;
                             /help)
                                 local help_message=$(cat <<EOF
 Available commands:
