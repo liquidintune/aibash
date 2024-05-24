@@ -75,15 +75,8 @@ configure_telegram
 
 send_telegram_message() {
     local message="$1"
-    local keyboard="$2"
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
-    local data
-
-    if [ -n "$keyboard" ]; then
-        data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" --argjson keyboard "$keyboard" '{chat_id: $chat_id, text: $text, reply_markup: {inline_keyboard: $keyboard}}')
-    else
-        data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" '{chat_id: $chat_id, text: $text}')
-    fi
+    local data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" '{chat_id: $chat_id, text: $text}')
 
     curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data" > /dev/null
     log "Sent message to Telegram: $message"
@@ -128,6 +121,11 @@ monitor_vms() {
         local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
         local status_changed=false
         local current_status=""
+        local previous_status=""
+
+        if [ -f "$VM_STATUS_FILE" ]; then
+            previous_status=$(cat "$VM_STATUS_FILE")
+        fi
 
         while read -r vm; do
             local vm_id=$(echo "$vm" | awk '{print $1}')
@@ -135,29 +133,18 @@ monitor_vms() {
             local status=$(echo "$vm" | awk '{print $3}')
             current_status+="$vm_id:$status;"
 
-            if [ -f "$VM_STATUS_FILE" ]; then
-                local previous_status=$(cat "$VM_STATUS_FILE")
-                if [[ ! "$previous_status" =~ "$vm_id:$status;" ]]; then
-                    status_changed=true
-                fi
-            else
+            if [[ ! "$previous_status" =~ "$vm_id:$status;" ]]; then
                 status_changed=true
-            fi
-        done <<< "$vms"
-
-        if $status_changed; then
-            echo "$current_status" > "$VM_STATUS_FILE"
-            while read -r vm; do
-                local vm_id=$(echo "$vm" | awk '{print $1}')
-                local vm_name=$(echo "$vm" | awk '{print $2}')
-                local status=$(echo "$vm" | awk '{print $3}')
-
                 if [ "$status" == "running" ]; then
                     send_telegram_message "🟢 [Server $SERVER_ID] VM $vm_name ($vm_id) is running."
                 else
                     send_telegram_message "🔴 [Server $SERVER_ID] VM $vm_name ($vm_id) is not running."
                 fi
-            done <<< "$vms"
+            fi
+        done <<< "$vms"
+
+        if $status_changed; then
+            echo "$current_status" > "$VM_STATUS_FILE"
         fi
     fi
 }
