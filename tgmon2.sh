@@ -86,6 +86,7 @@ send_telegram_message() {
     fi
 
     curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data" > /dev/null
+    log "Sent message to Telegram: $message"
 }
 
 monitor_services() {
@@ -201,6 +202,7 @@ handle_telegram_commands() {
                         log "Executing command: $command for server ID: $cmd_server_id"
                         case $command in
                             /server_id)
+                                log "Sending server ID: $SERVER_ID"
                                 send_telegram_message "Server ID: $SERVER_ID"
                                 ;;
                             /help)
@@ -220,6 +222,7 @@ Available commands:
 /sudo <server_id> <command> - Execute a command with sudo privileges.
 EOF
 )
+                                log "Sending help message"
                                 send_telegram_message "$help_message"
                                 ;;
                             /list_enabled_services)
