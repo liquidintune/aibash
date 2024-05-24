@@ -8,8 +8,7 @@ STATUS_FILE="/tmp/monitoring_status"
 VM_STATUS_FILE="/tmp/vm_monitoring_status"
 DISK_THRESHOLD=10
 CPU_THRESHOLD=90
-MEM_THRESHOLD=90
-TEMP_THRESHOLD=80
+MEM_THRESHOLD=92
 
 log() {
     local message="$1"
@@ -20,13 +19,13 @@ install_packages() {
     if [[ -f /etc/debian_version ]]; then
         log "Debian-based OS detected"
         apt-get update
-        apt-get install -y jq curl lm-sensors
-        log "Installed jq, curl, and lm-sensors"
+        apt-get install -y jq curl
+        log "Installed jq and curl"
     elif [[ -f /etc/redhat-release ]]; then
         log "RedHat-based OS detected"
         yum install -y epel-release
-        yum install -y jq curl lm_sensors
-        log "Installed jq, curl, and lm_sensors"
+        yum install -y jq curl
+        log "Installed jq and curl"
     else
         log "Unsupported OS"
         echo "Unsupported OS"
@@ -155,13 +154,6 @@ monitor_memory() {
     fi
 }
 
-monitor_temperature() {
-    local temp=$(sensors | grep 'Package id 0:' | awk '{print $4}' | sed 's/+//;s/°C//')
-    if (( $(echo "$temp > $TEMP_THRESHOLD" | bc -l) )); then
-        send_telegram_message "🔴 [Server $SERVER_ID] CPU temperature is above ${TEMP_THRESHOLD}°C: ${temp}°C."
-    fi
-}
-
 monitoring_loop() {
     while true; do
         monitor_services
@@ -169,7 +161,6 @@ monitoring_loop() {
         monitor_disk
         monitor_cpu
         monitor_memory
-        monitor_temperature
         sleep 60
     done
 }
@@ -218,7 +209,7 @@ Available commands:
 /start_service <server_id> <service> - Start a service.
 /stop_service <server_id> <service> - Stop a service.
 /restart_service <server_id> <service> - Restart a service.
-/sudo <server_id> <command> - Execute a command without sudo.
+/run <server_id> <command> - Execute a command without sudo privileges.
 EOF
 )
                             log "Sending help message"
@@ -239,7 +230,7 @@ EOF
                             ;;
                         /list_vms)
                             local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
                                 local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
                                 while read -r vm; do
                                     local vm_id=$(echo "$vm" | awk '{print $1}')
@@ -361,14 +352,14 @@ EOF
                                 fi
                             fi
                             ;;
-                        /sudo)
+                        /run)
                             local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                            local command=$(echo "$args" | cut -d' ' -f2-)
+                            local command_to_run=$(echo "$args" | cut -d' ' -f2-)
                             if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                                if [ -z "$command" ]; then
+                                if [ -z "$command_to_run" ]; then
                                     send_telegram_message "Error: command must be specified."
                                 else
-                                    local result=$($command 2>&1)
+                                    local result=$(eval "$command_to_run" 2>&1)
                                     send_telegram_message "$result"
                                 fi
                             fi
