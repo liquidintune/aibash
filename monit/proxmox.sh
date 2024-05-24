@@ -6,6 +6,10 @@ CONFIG_FILE="$HOME/.telegram_bot_config"
 SECRET_FILE="$HOME/.telegram_bot_secret"
 STATUS_FILE="/tmp/monitoring_status"
 VM_STATUS_FILE="/tmp/vm_monitoring_status"
+DISK_THRESHOLD=10
+CPU_THRESHOLD=90
+MEM_THRESHOLD=90
+TEMP_THRESHOLD=80
 
 log() {
     local message="$1"
@@ -15,16 +19,14 @@ log() {
 install_packages() {
     if [[ -f /etc/debian_version ]]; then
         log "Debian-based OS detected"
-        if ! command -v jq &> /dev/null; then
-            apt-get update && apt-get install -y jq curl
-            log "Installed jq and curl"
-        fi
+        apt-get update
+        apt-get install -y jq curl lm-sensors
+        log "Installed jq, curl, and lm-sensors"
     elif [[ -f /etc/redhat-release ]]; then
         log "RedHat-based OS detected"
-        if ! command -v jq &> /dev/null; then
-            yum install -y epel-release && yum install -y jq curl
-            log "Installed jq and curl"
-        fi
+        yum install -y epel-release
+        yum install -y jq curl lm_sensors
+        log "Installed jq, curl, and lm_sensors"
     else
         log "Unsupported OS"
         echo "Unsupported OS"
@@ -132,10 +134,42 @@ monitor_vms() {
     fi
 }
 
+monitor_disk() {
+    local disk_usage=$(df / | grep / | awk '{print $5}' | sed 's/%//')
+    if [ "$disk_usage" -gt $DISK_THRESHOLD ]; then
+        send_telegram_message "🔴 [Server $SERVER_ID] Disk usage is above ${DISK_THRESHOLD}%: ${disk_usage}% used."
+    fi
+}
+
+monitor_cpu() {
+    local cpu_load=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}')
+    if (( $(echo "$cpu_load > $CPU_THRESHOLD" | bc -l) )); then
+        send_telegram_message "🔴 [Server $SERVER_ID] CPU load is above ${CPU_THRESHOLD}%: ${cpu_load}%."
+    fi
+}
+
+monitor_memory() {
+    local mem_usage=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
+    if (( $(echo "$mem_usage > $MEM_THRESHOLD" | bc -l) )); then
+        send_telegram_message "🔴 [Server $SERVER_ID] Memory usage is above ${MEM_THRESHOLD}%: ${mem_usage}%."
+    fi
+}
+
+monitor_temperature() {
+    local temp=$(sensors | grep 'Package id 0:' | awk '{print $4}' | sed 's/+//;s/°C//')
+    if (( $(echo "$temp > $TEMP_THRESHOLD" | bc -l) )); then
+        send_telegram_message "🔴 [Server $SERVER_ID] CPU temperature is above ${TEMP_THRESHOLD}°C: ${temp}°C."
+    fi
+}
+
 monitoring_loop() {
     while true; do
         monitor_services
         monitor_vms
+        monitor_disk
+        monitor_cpu
+        monitor_memory
+        monitor_temperature
         sleep 60
     done
 }
