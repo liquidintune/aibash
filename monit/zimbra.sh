@@ -103,8 +103,8 @@ monitor_services() {
 
 monitor_disk() {
     local disk_usage=$(df / | grep / | awk '{print $5}' | sed 's/%//')
-    if [ "$disk_usage" -gt $DISK_THRESHOLD ]; then
-        send_telegram_message "🔴 [Server $SERVER_ID] Disk usage is above ${DISK_THRESHOLD}%: ${disk_usage}% used."
+    if [ "$disk_usage" -ge $((100 - $DISK_THRESHOLD)) ]; then
+        send_telegram_message "🔴 [Server $SERVER_ID] Disk usage is above $((100 - $DISK_THRESHOLD))%: ${disk_usage}% used."
     fi
 }
 
