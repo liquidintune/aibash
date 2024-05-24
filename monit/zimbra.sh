@@ -1,186 +1,169 @@
-# Установить необходимые модули
-if (-not (Get-Module -ListAvailable -Name BurntToast)) {
-    Install-Module -Name BurntToast -Force
+#!/bin/bash
+
+set -e
+LOG_FILE="/var/log/monitoring_script.log"
+CONFIG_FILE="$HOME/.telegram_bot_config"
+SECRET_FILE="$HOME/.telegram_bot_secret"
+STATUS_FILE="/tmp/monitoring_status"
+DISK_THRESHOLD=10
+CPU_THRESHOLD=90
+MEM_THRESHOLD=92
+
+log() {
+    local message="$1"
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $message" >> "$LOG_FILE"
 }
 
-if (-not (Get-Module -ListAvailable -Name PSSendGrid)) {
-    Install-Module -Name PSSendGrid -Force
-}
-
-$LogFile = "C:\MonitoringScript\monitoring_script.log"
-$ConfigFile = "$env:USERPROFILE\.telegram_bot_config"
-$SecretFile = "$env:USERPROFILE\.telegram_bot_secret"
-$StatusFile = "C:\MonitoringScript\monitoring_status"
-$DiskThreshold = 10
-$CPUThreshold = 90
-$MemThreshold = 92
-
-function Log {
-    param (
-        [string]$message
-    )
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$timestamp - $message" | Out-File -Append -FilePath $LogFile
-}
-
-function Install-Packages {
-    Log "Checking if jq and curl are installed"
-    if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
-        Log "Installing jq"
-        Invoke-WebRequest -Uri "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-win64.exe" -OutFile "C:\Windows\System32\jq.exe"
-    }
-    if (-not (Get-Command curl -ErrorAction SilentlyContinue)) {
-        Log "Installing curl"
-        Invoke-WebRequest -Uri "https://curl.se/windows/dl-7.77.0_2/curl-7.77.0_2-win64-mingw.zip" -OutFile "$env:TEMP\curl.zip"
-        Expand-Archive -Path "$env:TEMP\curl.zip" -DestinationPath "$env:TEMP\curl"
-        Copy-Item -Path "$env:TEMP\curl\curl-7.77.0-win64-mingw\bin\curl.exe" -Destination "C:\Windows\System32\curl.exe"
-    }
-}
-
-Install-Packages
-
-$DefaultServicesToMonitor = "W3SVC,SQLSERVERAGENT,WinRM,sshd"
-
-function Configure-Telegram {
-    if (-not (Test-Path -Path $ConfigFile)) {
-        $TelegramBotToken = Read-Host -Prompt "Enter Telegram bot token"
-        $TelegramChatID = Read-Host -Prompt "Enter Telegram group chat ID"
-        $ServerID = Read-Host -Prompt "Enter unique server ID"
-        
-        $SecretContent = "TELEGRAM_BOT_TOKEN=$TelegramBotToken"
-        $SecretContent | Out-File -FilePath $SecretFile -Force
-        $SecretFile | Set-ItemProperty -Name IsReadOnly -Value $true
-        
-        $ConfigContent = "TELEGRAM_CHAT_ID=$TelegramChatID`nSERVER_ID=$ServerID`nSERVICES_TO_MONITOR=$DefaultServicesToMonitor"
-        $ConfigContent | Out-File -FilePath $ConfigFile -Force
-        
-        Log "Configured Telegram bot and saved to $ConfigFile and $SecretFile"
-    } else {
-        . $ConfigFile
-        . $SecretFile
+install_packages() {
+    if [[ -f /etc/debian_version ]]; then
+        log "Debian-based OS detected"
+        apt-get update
+        apt-get install -y jq curl
+        log "Installed jq and curl"
+    elif [[ -f /etc/redhat-release ]]; then
+        log "RedHat-based OS detected"
+        yum install -y epel-release
+        yum install -y jq curl
+        log "Installed jq and curl"
+    else
+        log "Unsupported OS"
+        echo "Unsupported OS"
+        exit 1
     fi
 }
 
-Configure-Telegram
+install_packages
 
-function Send-TelegramMessage {
-    param (
-        [string]$message
-    )
-    $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/sendMessage"
-    $postParams = @{
-        chat_id = $env:TELEGRAM_CHAT_ID
-        text    = $message
-    }
+DEFAULT_SERVICES_TO_MONITOR="zimbra,nginx,mysql,sshd"
 
-    try {
-        Invoke-RestMethod -Uri $apiUrl -Method Post -Body ($postParams | ConvertTo-Json) -ContentType "application/json" | Out-Null
-        Log "Sent message to Telegram: $message"
-    } catch {
-        Log "Failed to send message to Telegram: $_"
-    }
+configure_telegram() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        read -p "Enter Telegram bot token: " TELEGRAM_BOT_TOKEN
+        read -p "Enter Telegram group chat ID: " TELEGRAM_CHAT_ID
+        read -p "Enter unique server ID: " SERVER_ID
+        
+        echo "TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN" > "$SECRET_FILE"
+        chmod 600 "$SECRET_FILE"
+        
+        echo "TELEGRAM_CHAT_ID=$TELEGRAM_CHAT_ID" > "$CONFIG_FILE"
+        echo "SERVER_ID=$SERVER_ID" >> "$CONFIG_FILE"
+        echo "SERVICES_TO_MONITOR=$DEFAULT_SERVICES_TO_MONITOR" >> "$CONFIG_FILE"
+        
+        log "Configured Telegram bot and saved to $CONFIG_FILE and $SECRET_FILE"
+    else
+        source "$CONFIG_FILE"
+        source "$SECRET_FILE"
+    fi
 }
 
-function Monitor-Services {
-    $statusChanged = $false
-    $currentStatus = ""
+configure_telegram
 
-    foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
-        $serviceStatus = Get-Service -Name $service
-        if ($serviceStatus.Status -eq "Running") {
-            $currentStatus += "$service:active;"
-        } else {
-            $currentStatus += "$service:inactive;"
-        }
-    }
+send_telegram_message() {
+    local message="$1"
+    local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
+    local data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" '{chat_id: $chat_id, text: $text}')
 
-    if (Test-Path -Path $StatusFile) {
-        $previousStatus = Get-Content -Path $StatusFile
-        if ($currentStatus -ne $previousStatus) {
-            $statusChanged = $true
-        }
-    } else {
-        $statusChanged = $true
-    }
+    curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data" > /dev/null
+    log "Sent message to Telegram: $message"
+}
 
-    if ($statusChanged) {
-        $currentStatus | Out-File -FilePath $StatusFile -Force
-        foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
-            $serviceStatus = Get-Service -Name $service
-            if ($serviceStatus.Status -eq "Running") {
-                Send-TelegramMessage "🟢 [Server $($env:SERVER_ID)] Service $service is active."
-            } else {
-                Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] Service $service is inactive."
+monitor_services() {
+    local services=($(echo $SERVICES_TO_MONITOR | tr ',' ' '))
+    local status_changed=false
+    local current_status=""
+
+    for service in "${services[@]}"; do
+        if systemctl is-active --quiet "$service"; then
+            current_status+="$service:active;"
+        else
+            current_status+="$service:inactive;"
+        fi
+    done
+
+    if [ -f "$STATUS_FILE" ]; then
+        local previous_status=$(cat "$STATUS_FILE")
+        if [ "$current_status" != "$previous_status" ]; then
+            status_changed=true
+        fi
+    else
+        status_changed=true
+    fi
+
+    if $status_changed; then
+        echo "$current_status" > "$STATUS_FILE"
+        for service in "${services[@]}"; do
+            if systemctl is-active --quiet "$service"; then
+                send_telegram_message "🟢 [Server $SERVER_ID] Service $service is active."
+            else
+                send_telegram_message "🔴 [Server $SERVER_ID] Service $service is inactive."
+            fi
+        done
+    fi
+}
+
+monitor_disk() {
+    local disk_usage=$(df / | grep / | awk '{print $5}' | sed 's/%//')
+    if [ "$disk_usage" -ge $((100 - $DISK_THRESHOLD)) ]; then
+        send_telegram_message "🔴 [Server $SERVER_ID] Disk usage is above $((100 - $DISK_THRESHOLD))%: ${disk_usage}% used."
+    fi
+}
+
+monitor_cpu() {
+    local cpu_load=$(top -bn1 | grep "Cpu(s)" | sed "s/.*, *\([0-9.]*\)%* id.*/\1/" | awk '{print 100 - $1}')
+    if (( $(echo "$cpu_load > $CPU_THRESHOLD" | bc -l) )); then
+        send_telegram_message "🔴 [Server $SERVER_ID] CPU load is above ${CPU_THRESHOLD}%: ${cpu_load}%."
+    fi
+}
+
+monitor_memory() {
+    local mem_usage=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
+    if (( $(echo "$mem_usage > $MEM_THRESHOLD" | bc -l) )); then
+        send_telegram_message "🔴 [Server $SERVER_ID] Memory usage is above ${MEM_THRESHOLD}%: ${mem_usage}%."
+    fi
+}
+
+monitoring_loop() {
+    while true; do
+        monitor_services
+        monitor_disk
+        monitor_cpu
+        monitor_memory
+        sleep 60
+    done
+}
+
+handle_telegram_commands() {
+    local last_update_id=0
+
+    while true; do
+        local response=$(curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getUpdates?offset=$last_update_id")
+        local updates=$(echo "$response" | jq '.result')
+
+        for row in $(echo "${updates}" | jq -r '.[] | @base64'); do
+            _jq() {
+                echo "$row" | base64 --decode | jq -r "$1"
             }
-        }
-    }
-}
 
-function Monitor-Disk {
-    $diskUsage = (Get-PSDrive -Name C).Used
-    $totalSize = (Get-PSDrive -Name C).Used + (Get-PSDrive -Name C).Free
-    $diskUsagePercent = [math]::round(($diskUsage / $totalSize) * 100, 2)
+            local update_id=$(_jq '.update_id')
+            local message_text=$(_jq '.message.text')
+            local chat_id=$(_jq '.message.chat.id')
 
-    if ($diskUsagePercent -ge (100 - $DiskThreshold)) {
-        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] Disk usage is above $((100 - $DiskThreshold))%: ${diskUsagePercent}% used."
-    }
-}
+            log "Processing update_id: $update_id, chat_id: $chat_id, message_text: $message_text"
 
-function Monitor-CPU {
-    $cpuUsage = Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 3 | Measure-Object -Property CookedValue -Average | Select-Object -ExpandProperty Average
-    $cpuUsage = [math]::round($cpuUsage, 2)
+            if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
+                if [ -n "$message_text" ]; then
+                    local command=$(echo "$message_text" | awk '{print $1}')
+                    local args=$(echo "$message_text" | cut -d' ' -f2-)
 
-    if ($cpuUsage -gt $CPUThreshold) {
-        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] CPU load is above $CPUThreshold%: $cpuUsage%."
-    }
-}
+                    log "Received command: $command from chat_id: $chat_id"
 
-function Monitor-Memory {
-    $mem = Get-WmiObject Win32_OperatingSystem
-    $memUsage = [math]::round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
-    if ($memUsage -gt $MemThreshold) {
-        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] Memory usage is above $($MemThreshold)%: $($memUsage)%."
-    }
-}
-
-function Monitoring-Loop {
-    while ($true) {
-        Monitor-Services
-        Monitor-Disk
-        Monitor-CPU
-        Monitor-Memory
-        Start-Sleep -Seconds 60
-    }
-}
-
-function Handle-TelegramCommands {
-    $lastUpdateID = 0
-
-    while ($true) {
-        $response = Invoke-RestMethod -Uri "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/getUpdates?offset=$lastUpdateID"
-        $updates = $response.result
-
-        foreach ($update in $updates) {
-            $updateID = $update.update_id
-            $messageText = $update.message.text
-            $chatID = $update.message.chat.id
-
-            Log "Processing update_id: $updateID, chat_id: $chatID, message_text: $messageText"
-
-            if ($chatID -eq $env:TELEGRAM_CHAT_ID) {
-                if ($messageText) {
-                    $command = $messageText.Split()[0]
-                    $args = $messageText.Substring($command.Length).Trim()
-
-                    Log "Received command: $command from chat_id: $chatID"
-
-                    switch ($command) {
-                        "/server_id" {
-                            Log "Sending server ID: $env:SERVER_ID"
-                            Send-TelegramMessage "Server ID: $env:SERVER_ID"
-                        }
-                        "/help" {
-                            $helpMessage = @"
+                    case $command in
+                        /server_id)
+                            log "Sending server ID: $SERVER_ID"
+                            send_telegram_message "Server ID: $SERVER_ID"
+                            ;;
+                        /help)
+                            local help_message=$(cat <<EOF
 Available commands:
 /server_id - Show the server ID.
 /list_enabled_services <server_id> - List all enabled services.
@@ -189,99 +172,100 @@ Available commands:
 /stop_service <server_id> <service> - Stop a service.
 /restart_service <server_id> <service> - Restart a service.
 /run <server_id> <command> - Execute a command without sudo privileges.
-"@
-                            Log "Sending help message"
-                            Send-TelegramMessage $helpMessage
-                        }
-                        "/list_enabled_services" {
-                            $cmdServerID = $args.Split()[0]
-                            if ($cmdServerID -eq $env:SERVER_ID) {
-                                foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
-                                    $serviceStatus = Get-Service -Name $service
-                                    if ($serviceStatus.Status -eq "Running") {
-                                        Send-TelegramMessage "🟢 [Server $($env:SERVER_ID)] $service is active."
-                                    } else {
-                                        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] $service is inactive."
-                                    }
-                                }
-                            }
-                        }
-                        "/status_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
-                            if ($cmdServerID -eq $env:SERVER_ID) {
-                                if (-not $service) {
-                                    Send-TelegramMessage "Error: service must be specified."
-                                } else {
-                                    $status = Get-Service -Name $service | Format-List -Property Name,Status,DisplayName,DependentServices,ServicesDependedOn
-                                    Send-TelegramMessage "Status of service $service on server $env:SERVER_ID:`n$status"
-                                }
-                            }
-                        }
-                        "/start_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
-                            if ($cmdServerID -eq $env:SERVER_ID) {
-                                if (-not $service) {
-                                    Send-TelegramMessage "Error: service must be specified."
-                                } else {
-                                    $result = Start-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service started on server $env:SERVER_ID.`n$result"
-                                }
-                            }
-                        }
-                        "/stop_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
-                            if ($cmdServerID -eq $env:SERVER_ID) {
-                                if (-not $service) {
-                                    Send-TelegramMessage "Error: service must be specified."
-                                } else {
-                                    $result = Stop-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service stopped on server $env:SERVER_ID.`n$result"
-                                }
-                            }
-                        }
-                        "/restart_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
-                            if ($cmdServerID -eq $env:SERVER_ID) {
-                                if (-not $service) {
-                                    Send-TelegramMessage "Error: service must be specified."
-                                } else {
-                                    $resultStop = Stop-Service -Name $service -PassThru
-                                    $resultStart = Start-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service restarted on server $env:SERVER_ID.`nStop result: $resultStop`nStart result: $resultStart"
-                                }
-                            }
-                        }
-                        "/run" {
-                            $cmdServerID = $args.Split()[0]
-                            $commandToRun = $args.Substring($cmdServerID.Length).Trim()
-                            if ($cmdServerID -eq $env:SERVER_ID) {
-                                if (-not $commandToRun) {
-                                    Send-TelegramMessage "Error: command must be specified."
-                                } else {
-                                    $result = Invoke-Expression -Command $commandToRun
-                                    Send-TelegramMessage $result
-                                }
-                            }
-                        }
-                        Default {
-                            Send-TelegramMessage "Unknown command: $messageText"
-                        }
-                    }
-                }
-            }
+EOF
+)
+                            log "Sending help message"
+                            send_telegram_message "$help_message"
+                            ;;
+                        /list_enabled_services)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager | awk 'NR>1 {print $1}')
+                                for service in $services; do
+                                    if systemctl is-active --quiet "$service"; then
+                                        send_telegram_message "🟢 [Server $SERVER_ID] $service is active."
+                                    else
+                                        send_telegram_message "🔴 [Server $SERVER_ID] $service is inactive."
+                                    fi
+                                done
+                            fi
+                            ;;
+                        /status_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
+                                else
+                                    local status=$(systemctl status "$service" 2>&1)
+                                    send_telegram_message "Status of service $service on server $SERVER_ID:\n$status"
+                                fi
+                            fi
+                            ;;
+                        /start_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
+                                else
+                                    local result=$(systemctl start "$service" 2>&1)
+                                    send_telegram_message "Service $service started on server $SERVER_ID.\n$result"
+                                fi
+                            fi
+                            ;;
+                        /stop_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
+                                else
+                                    local result=$(systemctl stop "$service" 2>&1)
+                                    send_telegram_message "Service $service stopped on server $SERVER_ID.\n$result"
+                                fi
+                            fi
+                            ;;
+                        /restart_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$service" ]; then
+                                    send_telegram_message "Error: service must be specified."
+                                else
+                                    local result_stop=$(systemctl stop "$service" 2>&1)
+                                    local result_start=$(systemctl start "$service" 2>&1)
+                                    send_telegram_message "Service $service restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
+                                fi
+                            fi
+                            ;;
+                        /run)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local command_to_run=$(echo "$args" | cut -d' ' -f2-)
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$command_to_run" ]; then
+                                    send_telegram_message "Error: command must be specified."
+                                else
+                                    local result=$(eval "$command_to_run" 2>&1)
+                                    send_telegram_message "$result"
+                                fi
+                            fi
+                            ;;
+                        *)
+                            send_telegram_message "Unknown command: $message_text"
+                            ;;
+                    esac
+                fi
+            fi
 
-            $lastUpdateID = $updateID + 1
-        }
+            last_update_id=$(($update_id + 1))
+        done
 
-        Start-Sleep -Seconds 5
-    }
+        sleep 5
+    done
 }
 
-Send-TelegramMessage "Monitoring script started on server $($env:SERVER_ID)."
+send_telegram_message "Monitoring script started on server $SERVER_ID."
 
-Handle-TelegramCommands
-Monitoring-Loop
+handle_telegram_commands &
+monitoring_loop
