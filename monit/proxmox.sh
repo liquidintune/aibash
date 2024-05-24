@@ -218,7 +218,7 @@ Available commands:
 /start_service <server_id> <service> - Start a service.
 /stop_service <server_id> <service> - Stop a service.
 /restart_service <server_id> <service> - Restart a service.
-/sudo <server_id> <command> - Execute a command with sudo privileges.
+/sudo <server_id> <command> - Execute a command without sudo.
 EOF
 )
                             log "Sending help message"
@@ -363,12 +363,12 @@ EOF
                             ;;
                         /sudo)
                             local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                            local sudo_command=$(echo "$args" | cut -d' ' -f2-)
+                            local command=$(echo "$args" | cut -d' ' -f2-)
                             if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                                if [ -z "$sudo_command" ]; then
+                                if [ -z "$command" ]; then
                                     send_telegram_message "Error: command must be specified."
                                 else
-                                    local result=$(sudo "$sudo_command" 2>&1)
+                                    local result=$($command 2>&1)
                                     send_telegram_message "$result"
                                 fi
                             fi
