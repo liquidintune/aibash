@@ -58,7 +58,7 @@ function Configure-Telegram {
     } else {
         . $ConfigFile
         . $SecretFile
-    fi
+    }
 }
 
 Configure-Telegram
