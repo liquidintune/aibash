@@ -226,7 +226,7 @@ Available commands:
                                     Send-TelegramMessage "Error: service must be specified."
                                 } else {
                                     $result = Start-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service started on server $env:SERVER_ID.`n$result"
+                                    Send-TelegramMessage "Service $service started on server $($env:SERVER_ID).`n$result"
                                 }
                             }
                         }
@@ -238,7 +238,7 @@ Available commands:
                                     Send-TelegramMessage "Error: service must be specified."
                                 } else {
                                     $result = Stop-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service stopped on server $env:SERVER_ID.`n$result"
+                                    Send-TelegramMessage "Service $service stopped on server $($env:SERVER_ID).`n$result"
                                 }
                             }
                         }
@@ -251,7 +251,7 @@ Available commands:
                                 } else {
                                     $resultStop = Stop-Service -Name $service -PassThru
                                     $resultStart = Start-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service restarted on server $env:SERVER_ID.`nStop result: $resultStop`nStart result: $resultStart"
+                                    Send-TelegramMessage "Service $service restarted on server $($env:SERVER_ID).`nStop result: $resultStop`nStart result: $resultStart"
                                 }
                             }
                         }
