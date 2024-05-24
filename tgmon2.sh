@@ -75,27 +75,11 @@ configure_telegram
 
 send_telegram_message() {
     local message="$1"
-    local keyboard="$2"
     local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
-    local data
-
-    if [ -n "$keyboard" ]; then
-        data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" --argjson keyboard "$keyboard" '{chat_id: $chat_id, text: $text, reply_markup: {inline_keyboard: $keyboard}}')
-    else
-        data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" '{chat_id: $chat_id, text: $text}')
-    fi
+    local data=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$message" '{chat_id: $chat_id, text: $text}')
 
     curl -s -X POST "$api_url" -H "Content-Type: application/json" -d "$data" > /dev/null
     log "Sent message to Telegram: $message"
-}
-
-send_callback_response() {
-    local callback_query_id="$1"
-    local message="$2"
-    local api_url="https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/answerCallbackQuery"
-
-    curl -s -X POST "$api_url" -d "callback_query_id=$callback_query_id" -d "text=$message" > /dev/null
-    log "Sent callback response: $message"
 }
 
 monitor_services() {
@@ -196,76 +180,25 @@ handle_telegram_commands() {
             local update_id=$(_jq '.update_id')
             local message_text=$(_jq '.message.text')
             local chat_id=$(_jq '.message.chat.id')
-            local callback_query_id=$(_jq '.callback_query.id')
-            local callback_query_data=$(_jq '.callback_query.data')
 
-            if [ -n "$callback_query_data" ]; then
-                local command=$(echo "$callback_query_data" | awk '{print $1}')
-                local cmd_server_id=$(echo "$callback_query_data" | awk '{print $2}')
-                local args=$(echo "$callback_query_data" | cut -d' ' -f3-)
+            log "Processing update_id: $update_id, chat_id: $chat_id, message_text: $message_text"
 
-                log "Received callback command: $command from callback_query_id: $callback_query_id with server ID: $cmd_server_id"
+            if [ "$chat_id" == "$TELEGRAM_CHAT_ID" ]; then
+                if [ -n "$message_text" ]; then
+                    local command=$(echo "$message_text" | awk '{print $1}')
+                    local args=$(echo "$message_text" | cut -d' ' -f2-)
 
-                if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                    log "Executing callback command: $command for server ID: $cmd_server_id"
+                    log "Received command: $command from chat_id: $chat_id"
+
                     case $command in
-                        /list_vms)
-                            if [ "$SERVER_TYPE" == "Proxmox" ]; then
-                                local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                                local result=""
-                                while read -r vm; do
-                                    local vm_id=$(echo "$vm" | awk '{print $1}')
-                                    local vm_name=$(echo "$vm" | awk '{print $2}')
-                                    local status=$(echo "$vm" | awk '{print $3}')
-                                    if [ "$status" == "running" ]; then
-                                        result+="🟢 $vm_name ($vm_id) is running\n"
-                                    else
-                                        result+="🔴 $vm_name ($vm_id) is not running\n"
-                                    fi
-                                done <<< "$vms"
-                                send_callback_response "$callback_query_id" "List of VMs on server $SERVER_ID sent."
-                                send_telegram_message "List of VMs on server $SERVER_ID:\n$result"
-                            else
-                                send_callback_response "$callback_query_id" "Error: This command is only available for Proxmox servers."
-                            fi
+                        /server_id)
+                            log "Sending server ID: $SERVER_ID"
+                            send_telegram_message "Server ID: $SERVER_ID"
                             ;;
-                        /list_enabled_services)
-                            local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager | awk 'NR>1 {print $1}')
-                            local result=""
-                            for service in $services; do
-                                if systemctl is-active --quiet "$service"; then
-                                    result+="🟢 $service is active\n"
-                                else
-                                    result+="🔴 $service is inactive\n"
-                                fi
-                            done
-                            send_callback_response "$callback_query_id" "List of enabled services on server $SERVER_ID sent."
-                            send_telegram_message "List of enabled services on server $SERVER_ID:\n$result"
-                            ;;
-                        *)
-                            send_callback_response "$callback_query_id" "Unknown command: $callback_query_data"
-                            ;;
-                    esac
-                fi
-            elif [ "$chat_id" == "$TELEGRAM_CHAT_ID" ] && [ -n "$message_text" ]; then
-                local command=$(echo "$message_text" | awk '{print $1}')
-                local args=$(echo "$message_text" | cut -d' ' -f2-)
-
-                log "Received command: $command from chat_id: $chat_id"
-
-                case $command in
-                    /server_id)
-                        log "Sending server ID: $SERVER_ID"
-                        local keyboard=$(jq -n --arg server_id "$SERVER_ID" '[[
-                            {"text": "List VMs", "callback_data": ("/list_vms " + $server_id)},
-                            {"text": "List Enabled Services", "callback_data": ("/list_enabled_services " + $server_id)}
-                        ]]')
-                        send_telegram_message "Server ID: $SERVER_ID" "$keyboard"
-                        ;;
-                    /help)
-                        local help_message=$(cat <<EOF
+                        /help)
+                            local help_message=$(cat <<EOF
 Available commands:
-/server_id - Show the server ID and provide options to list VMs and enabled services.
+/server_id - Show the server ID.
 /list_enabled_services <server_id> - List all enabled services.
 /list_vms <server_id> - List all virtual machines (Proxmox only).
 /status_vm <server_id> <vm_id> - Show the status of a virtual machine (Proxmox only).
@@ -279,166 +212,167 @@ Available commands:
 /sudo <server_id> <command> - Execute a command with sudo privileges.
 EOF
 )
-                        log "Sending help message"
-                        send_telegram_message "$help_message"
-                        ;;
-                    /list_enabled_services)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager | awk 'NR>1 {print $1}')
-                            local result=""
-                            for service in $services; do
-                                if systemctl is-active --quiet "$service"; then
-                                    result+="🟢 $service is active\n"
+                            log "Sending help message"
+                            send_telegram_message "$help_message"
+                            ;;
+                        /list_enabled_services)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                local services=$(systemctl list-unit-files --type=service --state=enabled --no-pager | awk 'NR>1 {print $1}')
+                                local result=""
+                                for service in $services; do
+                                    if systemctl is-active --quiet "$service"; then
+                                        result+="🟢 $service is active\n"
+                                    else
+                                        result+="🔴 $service is inactive\n"
+                                    fi
+                                done
+                                send_telegram_message "List of enabled services on server $SERVER_ID:\n$result"
+                            fi
+                            ;;
+                        /list_vms)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
+                                local result=""
+                                while read -r vm; do
+                                    local vm_id=$(echo "$vm" | awk '{print $1}')
+                                    local vm_name=$(echo "$vm" | awk '{print $2}')
+                                    local status=$(echo "$vm" | awk '{print $3}')
+                                    if [ "$status" == "running" ]; then
+                                        result+="🟢 $vm_name ($vm_id) is running\n"
+                                    else
+                                        result+="🔴 $vm_name ($vm_id) is not running\n"
+                                    fi
+                                done <<< "$vms"
+                                send_telegram_message "List of VMs on server $SERVER_ID:\n$result"
+                            else
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
+                            fi
+                            ;;
+                        /status_vm)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local vm_id=$(echo "$args" | awk '{print $2}')
+                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$vm_id" ]; then
+                                    send_telegram_message "Error: vm_id must be specified."
                                 else
-                                    result+="🔴 $service is inactive\n"
+                                    local status=$(qm status "$vm_id" 2>&1)
+                                    send_telegram_message "Status of VM $vm_id on server $SERVER_ID:\n$status"
                                 fi
-                            done
-                            send_telegram_message "List of enabled services on server $SERVER_ID:\n$result"
-                        fi
-                        ;;
-                    /list_vms)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                            local result=""
-                            while read -r vm; do
-                                local vm_id=$(echo "$vm" | awk '{print $1}')
-                                local vm_name=$(echo "$vm" | awk '{print $2}')
-                                local status=$(echo "$vm" | awk '{print $3}')
-                                if [ "$status" == "running" ]; then
-                                    result+="🟢 $vm_name ($vm_id) is running\n"
+                            else
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
+                            fi
+                            ;;
+                        /start_vm)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local vm_id=$(echo "$args" | awk '{print $2}')
+                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -z "$vm_id" ]; then
+                                    send_telegram_message "Error: vm_id must be specified."
                                 else
-                                    result+="🔴 $vm_name ($vm_id) is not running\n"
+                                    local result=$(qm start "$vm_id" 2>&1)
+                                    send_telegram_message "VM $vm_id started on server $SERVER_ID.\n$result"
                                 fi
-                            done <<< "$vms"
-                            send_telegram_message "List of VMs on server $SERVER_ID:\n$result"
-                        else
-                            send_telegram_message "Error: This command is only available for Proxmox servers."
-                        fi
-                        ;;
-                    /status_vm)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local vm_id=$(echo "$args" | awk '{print $2}')
-                        if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
                             else
-                                local status=$(qm status "$vm_id" 2>&1)
-                                send_telegram_message "Status of VM $vm_id on server $SERVER_ID:\n$status"
+                                send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
-                        else
-                            send_telegram_message "Error: This command is only available for Proxmox servers."
-                        fi
-                        ;;
-                    /start_vm)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local vm_id=$(echo "$args" | awk '{print $2}')
-                        if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
+                            ;;
+                        /stop_vm)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local vm_id=$(echo "$args" | awk '{print $2}')
+                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -з "$vm_id" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан vm_id."
+                                еще
+                                    local result=$(qm stop "$vm_id" 2>&1)
+                                    send_telegram_message "VM $vm_id остановлен на сервере $SERVER_ID.\н$result"
+                                fi
                             else
-                                local result=$(qm start "$vm_id" 2>&1)
-                                send_telegram_message "VM $vm_id started on server $SERVER_ID.\n$result"
+                                send_telegram_message "Ошибка: Эта команда доступна только для серверов Proxmox."
                             fi
-                        else
-                            send_telegram_message "Error: This command is only available for Proxmox servers."
-                        fi
-                        ;;
-                    /stop_vm)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local vm_id=$(echo "$args" | awk '{print $2}')
-                        if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
+                            ;;
+                        /restart_vm)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local vm_id=$(echo "$args" | awk '{print $2}')
+                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -з "$vm_id" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан vm_id."
+                                еще
+                                    local result_stop=$(qm stop "$vm_id" 2>&1)
+                                    local result_start=$(qm start "$vm_id" 2>&1)
+                                    send_telegram_message "VM $vm_id перезапущен на сервере $SERVER_ID.\нРезультат остановки: $result_stop\nРезультат запуска: $result_start"
+                                fi
                             else
-                                local result=$(qm stop "$vm_id" 2>&1)
-                                send_telegram_message "VM $vm_id stopped on server $SERVER_ID.\n$result"
+                                send_telegram_message "Ошибка: Эта команда доступна только для серверов Proxmox."
                             fi
-                        else
-                            send_telegram_message "Error: This command is only available for Proxmox servers."
-                        fi
-                        ;;
-                    /restart_vm)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local vm_id=$(echo "$args" | awk '{print $2}')
-                        if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$vm_id" ]; then
-                                send_telegram_message "Error: vm_id must be specified."
-                            else
-                                local result_stop=$(qm stop "$vm_id" 2>&1)
-                                local result_start=$(qm start "$vm_id" 2>&1)
-                                send_telegram_message "VM $vm_id restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
+                            ;;
+                        /status_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
+                                еще
+                                    local status=$(systemctl status "$service" 2>&1)
+                                    send_telegram_message "Статус сервиса $service на сервере $SERVER_ID:\н$status"
+                                fi
                             fi
-                        else
-                            send_telegram_message "Error: This command is only available for Proxmox servers."
-                        fi
-                        ;;
-                    /status_service)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local service=$(echo "$args" | awk '{print $2}')
-                        if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$service" ]; then
-                                send_telegram_message "Error: service must be specified."
-                            else
-                                local status=$(systemctl status "$service" 2>&1)
-                                send_telegram_message "Status of service $service on server $SERVER_ID:\n$status"
+                            ;;
+                        /start_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
+                                еще
+                                    local result=$(systemctl start "$service" 2>&1)
+                                    send_telegram_message "Сервис $service запущен на сервере $SERVER_ID.\н$result"
+                                fi
                             fi
-                        fi
-                        ;;
-                    /start_service)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local service=$(echo "$args" | awk '{print $2}')
-                        if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$service" ]; then
-                                send_telegram_message "Error: service must be specified."
-                            else
-                                local result=$(systemctl start "$service" 2>&1)
-                                send_telegram_message "Service $service started on server $SERVER_ID.\n$result"
+                            ;;
+                        /stop_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
+                                еще
+                                    local result=$(systemctl stop "$service" 2>&1)
+                                    send_telegram_message "Сервис $service остановлен на сервере $SERVER_ID.\н$result"
+                                fi
                             fi
-                        fi
-                        ;;
-                    /stop_service)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local service=$(echo "$args" | awk '{print $2}')
-                        if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$service" ]; then
-                                send_telegram_message "Error: service must be specified."
-                            else
-                                local result=$(systemctl stop "$service" 2>&1)
-                                send_telegram_message "Service $service stopped on server $SERVER_ID.\n$result"
+                            ;;
+                        /restart_service)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local service=$(echo "$args" | awk '{print $2}')
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; тогда
+                                if [ -з "$service" ]; тогда
+                                    send_telegram_message "Ошибка: должен быть указан service."
+                                еще
+                                    local result_stop=$(systemctl stop "$service" 2>&1)
+                                    local result_start=$(systemctl start "$service" 2>&1)
+                                    send_telegram_message "Сервис $service перезапущен на сервере $SERVER_ID.\нРезультат остановки: $result_stop\nРезультат запуска: $result_start"
+                                fi
                             fi
-                        fi
-                        ;;
-                    /restart_service)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local service=$(echo "$args" | awk '{print $2}')
-                        if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$service" ]; then
-                                send_telegram_message "Error: service must be specified."
-                            else
-                                local result_stop=$(systemctl stop "$service" 2>&1)
-                                local result_start=$(systemctl start "$service" 2>&1)
-                                send_telegram_message "Service $service restarted on server $SERVER_ID.\nStop result: $result_stop\nStart result: $result_start"
+                            ;;
+                        /sudo)
+                            local cmd_server_id=$(echo "$args" | awk '{print $1}')
+                            local sudo_command=$(echo "$args" | cut -d' ' -f2-)
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; тогда
+                                if [ -з "$sudo_command" ]; тогда
+                                    send_telegram_message "Ошибка: должна быть указана команда."
+                                еще
+                                    local result=$(sudo "$sudo_command" 2>&1)
+                                    send_telegram_message "$result"
+                                fi
                             fi
-                        fi
-                        ;;
-                    /sudo)
-                        local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                        local sudo_command=$(echo "$args" | cut -d' ' -f2-)
-                        if [ "$cmd_server_id" == "$SERVER_ID" ]; then
-                            if [ -z "$sudo_command" ]; then
-                                send_telegram_message "Error: command must be specified."
-                            else
-                                local result=$(sudo "$sudo_command" 2>&1)
-                                send_telegram_message "$result"
-                            fi
-                        fi
-                        ;;
-                    *)
-                        send_telegram_message "Unknown command: $message_text"
-                        ;;
-                esac
+                            ;;
+                        *)
+                            send_telegram_message "Unknown command: $message_text"
+                            ;;
+                    esac
+                fi
             fi
 
             last_update_id=$(($update_id + 1))
