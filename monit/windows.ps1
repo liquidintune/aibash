@@ -39,39 +39,26 @@ function Install-Packages {
 
 Install-Packages
 
-$DefaultServicesToMonitor = "W3SVC,SQLSERVERAGENT,WinRM"
+$DefaultServicesToMonitor = "W3SVC,SQLSERVERAGENT,WinRM,sshd"
 
 function Configure-Telegram {
     if (-not (Test-Path -Path $ConfigFile)) {
-        $TelegramBotToken = Read-Host "Enter Telegram bot token"
-        $TelegramChatID = Read-Host "Enter Telegram group chat ID"
-        $ServerID = Read-Host "Enter unique server ID"
-
-        $TelegramBotToken | Out-File -FilePath $SecretFile
-        Set-ItemProperty -Path $SecretFile -Name IsReadOnly -Value $true
-
-        $Config = @"
-TELEGRAM_CHAT_ID=$TelegramChatID
-SERVER_ID=$ServerID
-SERVICES_TO_MONITOR=$DefaultServicesToMonitor
-"@
-        $Config | Out-File -FilePath $ConfigFile
-
+        $TelegramBotToken = Read-Host -Prompt "Enter Telegram bot token"
+        $TelegramChatID = Read-Host -Prompt "Enter Telegram group chat ID"
+        $ServerID = Read-Host -Prompt "Enter unique server ID"
+        
+        $SecretContent = "TELEGRAM_BOT_TOKEN=$TelegramBotToken"
+        $SecretContent | Out-File -FilePath $SecretFile -Force
+        $SecretFile | Set-ItemProperty -Name IsReadOnly -Value $true
+        
+        $ConfigContent = "TELEGRAM_CHAT_ID=$TelegramChatID`nSERVER_ID=$ServerID`nSERVICES_TO_MONITOR=$DefaultServicesToMonitor"
+        $ConfigContent | Out-File -FilePath $ConfigFile -Force
+        
         Log "Configured Telegram bot and saved to $ConfigFile and $SecretFile"
     } else {
-        $Config = Get-Content -Path $ConfigFile
-        $Secret = Get-Content -Path $SecretFile
-        foreach ($line in $Config) {
-            if ($line -match "TELEGRAM_CHAT_ID=(.+)") {
-                $Global:TelegramChatID = $matches[1]
-            } elseif ($line -match "SERVER_ID=(.+)") {
-                $Global:ServerID = $matches[1]
-            } elseif ($line -match "SERVICES_TO_MONITOR=(.+)") {
-                $Global:ServicesToMonitor = $matches[1].Split(",")
-            }
-        }
-        $Global:TelegramBotToken = $Secret
-    }
+        . $ConfigFile
+        . $SecretFile
+    fi
 }
 
 Configure-Telegram
@@ -80,26 +67,30 @@ function Send-TelegramMessage {
     param (
         [string]$message
     )
-    $apiUrl = "https://api.telegram.org/bot$TelegramBotToken/sendMessage"
-    $data = @{
-        chat_id = $TelegramChatID
+    $apiUrl = "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
+    $postParams = @{
+        chat_id = $TELEGRAM_CHAT_ID
         text    = $message
     }
-    $json = $data | ConvertTo-Json
-    Invoke-RestMethod -Uri $apiUrl -Method Post -ContentType "application/json" -Body $json
-    Log "Sent message to Telegram: $message"
+
+    try {
+        Invoke-RestMethod -Uri $apiUrl -Method Post -Body ($postParams | ConvertTo-Json) -ContentType "application/json" | Out-Null
+        Log "Sent message to Telegram: $message"
+    } catch {
+        Log "Failed to send message to Telegram: $_"
+    }
 }
 
 function Monitor-Services {
-    $currentStatus = @()
     $statusChanged = $false
+    $currentStatus = ""
 
-    foreach ($service in $ServicesToMonitor) {
+    foreach ($service in $SERVICES_TO_MONITOR.Split(',')) {
         $serviceStatus = Get-Service -Name $service
         if ($serviceStatus.Status -eq "Running") {
-            $currentStatus += "$service:active"
+            $currentStatus += "$service:active;"
         } else {
-            $currentStatus += "$service:inactive"
+            $currentStatus += "$service:inactive;"
         }
     }
 
@@ -113,31 +104,35 @@ function Monitor-Services {
     }
 
     if ($statusChanged) {
-        $currentStatus | Out-File -FilePath $StatusFile
-        foreach ($service in $ServicesToMonitor) {
+        $currentStatus | Out-File -FilePath $StatusFile -Force
+        foreach ($service in $SERVICES_TO_MONITOR.Split(',')) {
             $serviceStatus = Get-Service -Name $service
             if ($serviceStatus.Status -eq "Running") {
-                Send-TelegramMessage "🟢 [Server $ServerID] Service $service is active."
+                Send-TelegramMessage "🟢 [Server $SERVER_ID] Service $service is active."
             } else {
-                Send-TelegramMessage "🔴 [Server $ServerID] Service $service is inactive."
+                Send-TelegramMessage "🔴 [Server $SERVER_ID] Service $service is inactive."
             }
         }
     }
 }
 
 function Monitor-Disk {
-    $diskUsage = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Used -gt 0 } | Select-Object -Property Used,UsedPercentage
-    foreach ($disk in $diskUsage) {
-        if ($disk.UsedPercentage -gt $DiskThreshold) {
-            Send-TelegramMessage "🔴 [Server $ServerID] Disk usage is above $($DiskThreshold)%: $($disk.UsedPercentage)% used."
-        }
+    $diskUsage = Get-PSDrive -Name C | Select-Object -ExpandProperty Used
+    $totalSize = Get-PSDrive -Name C | Select-Object -ExpandProperty Used
+    $freeSpace = Get-PSDrive -Name C | Select-Object -ExpandProperty Free
+    $diskUsagePercent = [math]::round(($diskUsage / ($totalSize + $freeSpace)) * 100, 2)
+
+    if ($diskUsagePercent -ge (100 - $DiskThreshold)) {
+        Send-TelegramMessage "🔴 [Server $SERVER_ID] Disk usage is above $((100 - $DiskThreshold))%: ${diskUsagePercent}% used."
     }
 }
 
 function Monitor-CPU {
-    $cpuLoad = Get-WmiObject win32_processor | Measure-Object -Property LoadPercentage -Average | Select-Object -ExpandProperty Average
-    if ($cpuLoad -gt $CPUThreshold) {
-        Send-TelegramMessage "🔴 [Server $ServerID] CPU load is above $($CPUThreshold)%: $($cpuLoad)%."
+    $cpuUsage = Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 3 | Measure-Object -Property CookedValue -Average | Select-Object -ExpandProperty Average
+    $cpuUsage = [math]::round($cpuUsage, 2)
+
+    if ($cpuUsage -gt $CPUThreshold) {
+        Send-TelegramMessage "🔴 [Server $SERVER_ID] CPU load is above $CPUThreshold%: $cpuUsage%."
     }
 }
 
@@ -145,7 +140,7 @@ function Monitor-Memory {
     $mem = Get-WmiObject Win32_OperatingSystem
     $memUsage = [math]::round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
     if ($memUsage -gt $MemThreshold) {
-        Send-TelegramMessage "🔴 [Server $ServerID] Memory usage is above $($MemThreshold)%: $($memUsage)%."
+        Send-TelegramMessage "🔴 [Server $SERVER_ID] Memory usage is above $($MemThreshold)%: $($memUsage)%."
     }
 }
 
@@ -268,12 +263,12 @@ Available commands:
                                 if (-not $commandToRun) {
                                     Send-TelegramMessage "Error: command must be specified."
                                 } else {
-                                    $result = Invoke-Expression $commandToRun
+                                    $result = Invoke-Expression -Command $commandToRun
                                     Send-TelegramMessage $result
                                 }
                             }
                         }
-                        default {
+                        Default {
                             Send-TelegramMessage "Unknown command: $messageText"
                         }
                     }
@@ -289,5 +284,5 @@ Available commands:
 
 Send-TelegramMessage "Monitoring script started on server $ServerID."
 
-Start-Job -ScriptBlock { Handle-TelegramCommands }
+Handle-TelegramCommands
 Monitoring-Loop

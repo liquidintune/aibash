@@ -135,8 +135,8 @@ monitor_vms() {
 
 monitor_disk() {
     local disk_usage=$(df / | grep / | awk '{print $5}' | sed 's/%//')
-    if [ "$disk_usage" -gt $DISK_THRESHOLD ]; then
-        send_telegram_message "🔴 [Server $SERVER_ID] Disk usage is above ${DISK_THRESHOLD}%: ${disk_usage}% used."
+    if [ "$disk_usage" -ge $((100 - $DISK_THRESHOLD)) ]; then
+        send_telegram_message "🔴 [Server $SERVER_ID] Disk usage is above $((100 - $DISK_THRESHOLD))%: ${disk_usage}% used."
     fi
 }
 
@@ -230,7 +230,7 @@ EOF
                             ;;
                         /list_vms)
                             local cmd_server_id=$(echo "$args" | awk '{print $1}')
-                            if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
+                            if [ "$cmd_server_id" == "$SERVER_ID" ]; then
                                 local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
                                 while read -r vm; do
                                     local vm_id=$(echo "$vm" | awk '{print $1}')
