@@ -1,4 +1,4 @@
-# Установить необходимые модули
+# Установка необходимых модулей
 if (-not (Get-Module -ListAvailable -Name BurntToast)) {
     Install-Module -Name BurntToast -Force
 }
@@ -15,7 +15,7 @@ $DiskThreshold = 10
 $CPUThreshold = 90
 $MemThreshold = 92
 
-function Log {
+function Write-Log {
     param (
         [string]$message
     )
@@ -24,13 +24,13 @@ function Log {
 }
 
 function Install-Packages {
-    Log "Checking if jq and curl are installed"
+    Write-Log "Checking if jq and curl are installed"
     if (-not (Get-Command jq -ErrorAction SilentlyContinue)) {
-        Log "Installing jq"
+        Write-Log "Installing jq"
         Invoke-WebRequest -Uri "https://github.com/stedolan/jq/releases/download/jq-1.6/jq-win64.exe" -OutFile "C:\Windows\System32\jq.exe"
     }
     if (-not (Get-Command curl -ErrorAction SilentlyContinue)) {
-        Log "Installing curl"
+        Write-Log "Installing curl"
         Invoke-WebRequest -Uri "https://curl.se/windows/dl-7.77.0_2/curl-7.77.0_2-win64-mingw.zip" -OutFile "$env:TEMP\curl.zip"
         Expand-Archive -Path "$env:TEMP\curl.zip" -DestinationPath "$env:TEMP\curl"
         Copy-Item -Path "$env:TEMP\curl\curl-7.77.0-win64-mingw\bin\curl.exe" -Destination "C:\Windows\System32\curl.exe"
@@ -41,7 +41,7 @@ Install-Packages
 
 $DefaultServicesToMonitor = "W3SVC,SQLSERVERAGENT,WinRM,sshd"
 
-function Configure-Telegram {
+function Set-TelegramConfig {
     if (-not (Test-Path -Path $ConfigFile)) {
         $TelegramBotToken = Read-Host -Prompt "Enter Telegram bot token"
         $TelegramChatID = Read-Host -Prompt "Enter Telegram group chat ID"
@@ -54,14 +54,14 @@ function Configure-Telegram {
         $ConfigContent = "TELEGRAM_CHAT_ID=$TelegramChatID`nSERVER_ID=$ServerID`nSERVICES_TO_MONITOR=$DefaultServicesToMonitor"
         $ConfigContent | Out-File -FilePath $ConfigFile -Force
         
-        Log "Configured Telegram bot and saved to $ConfigFile and $SecretFile"
+        Write-Log "Configured Telegram bot and saved to $ConfigFile and $SecretFile"
     } else {
         . $ConfigFile
         . $SecretFile
     }
 }
 
-Configure-Telegram
+Set-TelegramConfig
 
 function Send-TelegramMessage {
     param (
@@ -75,13 +75,13 @@ function Send-TelegramMessage {
 
     try {
         Invoke-RestMethod -Uri $apiUrl -Method Post -Body ($postParams | ConvertTo-Json) -ContentType "application/json" | Out-Null
-        Log "Sent message to Telegram: $message"
+        Write-Log "Sent message to Telegram: $message"
     } catch {
-        Log "Failed to send message to Telegram: $_"
+        Write-Log "Failed to send message to Telegram: $_"
     }
 }
 
-function Monitor-Services {
+function Test-Services {
     $statusChanged = $false
     $currentStatus = ""
 
@@ -116,7 +116,7 @@ function Monitor-Services {
     }
 }
 
-function Monitor-Disk {
+function Test-Disk {
     $diskUsage = (Get-PSDrive -Name C).Used
     $totalSize = (Get-PSDrive -Name C).Used + (Get-PSDrive -Name C).Free
     $diskUsagePercent = [math]::round(($diskUsage / $totalSize) * 100, 2)
@@ -126,7 +126,7 @@ function Monitor-Disk {
     }
 }
 
-function Monitor-CPU {
+function Test-CPU {
     $cpuUsage = Get-Counter '\Processor(_Total)\% Processor Time' -SampleInterval 1 -MaxSamples 3 | Measure-Object -Property CookedValue -Average | Select-Object -ExpandProperty Average
     $cpuUsage = [math]::round($cpuUsage, 2)
 
@@ -135,7 +135,7 @@ function Monitor-CPU {
     }
 }
 
-function Monitor-Memory {
+function Test-Memory {
     $mem = Get-WmiObject Win32_OperatingSystem
     $memUsage = [math]::round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
     if ($memUsage -gt $MemThreshold) {
@@ -143,17 +143,17 @@ function Monitor-Memory {
     }
 }
 
-function Monitoring-Loop {
+function Start-MonitoringLoop {
     while ($true) {
-        Monitor-Services
-        Monitor-Disk
-        Monitor-CPU
-        Monitor-Memory
+        Test-Services
+        Test-Disk
+        Test-CPU
+        Test-Memory
         Start-Sleep -Seconds 60
     }
 }
 
-function Handle-TelegramCommands {
+function Invoke-TelegramCommands {
     $lastUpdateID = 0
 
     while ($true) {
@@ -165,18 +165,18 @@ function Handle-TelegramCommands {
             $messageText = $update.message.text
             $chatID = $update.message.chat.id
 
-            Log "Processing update_id: $updateID, chat_id: $chatID, message_text: $messageText"
+            Write-Log "Processing update_id: $updateID, chat_id: $chatID, message_text: $messageText"
 
             if ($chatID -eq $env:TELEGRAM_CHAT_ID) {
                 if ($messageText) {
                     $command = $messageText.Split()[0]
-                    $args = $messageText.Substring($command.Length).Trim()
+                    $arguments = $messageText.Substring($command.Length).Trim()
 
-                    Log "Received command: $command from chat_id: $chatID"
+                    Write-Log "Received command: $command from chat_id: $chatID"
 
                     switch ($command) {
                         "/server_id" {
-                            Log "Sending server ID: $env:SERVER_ID"
+                            Write-Log "Sending server ID: $env:SERVER_ID"
                             Send-TelegramMessage "Server ID: $env:SERVER_ID"
                         }
                         "/help" {
@@ -190,11 +190,11 @@ Available commands:
 /restart_service <server_id> <service> - Restart a service.
 /run <server_id> <command> - Execute a command without sudo privileges.
 "@
-                            Log "Sending help message"
+                            Write-Log "Sending help message"
                             Send-TelegramMessage $helpMessage
                         }
                         "/list_enabled_services" {
-                            $cmdServerID = $args.Split()[0]
+                            $cmdServerID = $arguments.Split()[0]
                             if ($cmdServerID -eq $env:SERVER_ID) {
                                 foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
                                     $serviceStatus = Get-Service -Name $service
@@ -207,8 +207,8 @@ Available commands:
                             }
                         }
                         "/status_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
+                            $cmdServerID = $arguments.Split()[0]
+                            $service = $arguments.Split()[1]
                             if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
@@ -219,8 +219,8 @@ Available commands:
                             }
                         }
                         "/start_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
+                            $cmdServerID = $arguments.Split()[0]
+                            $service = $arguments.Split()[1]
                             if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
@@ -231,8 +231,8 @@ Available commands:
                             }
                         }
                         "/stop_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
+                            $cmdServerID = $arguments.Split()[0]
+                            $service = $arguments.Split()[1]
                             if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
@@ -243,8 +243,8 @@ Available commands:
                             }
                         }
                         "/restart_service" {
-                            $cmdServerID = $args.Split()[0]
-                            $service = $args.Split()[1]
+                            $cmdServerID = $arguments.Split()[0]
+                            $service = $arguments.Split()[1]
                             if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
@@ -256,8 +256,8 @@ Available commands:
                             }
                         }
                         "/run" {
-                            $cmdServerID = $args.Split()[0]
-                            $commandToRun = $args.Substring($cmdServerID.Length).Trim()
+                            $cmdServerID = $arguments.Split()[0]
+                            $commandToRun = $arguments.Substring($cmdServerID.Length).Trim()
                             if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $commandToRun) {
                                     Send-TelegramMessage "Error: command must be specified."
@@ -283,5 +283,5 @@ Available commands:
 
 Send-TelegramMessage "Monitoring script started on server $($env:SERVER_ID)."
 
-Handle-TelegramCommands
-Monitoring-Loop
+Invoke-TelegramCommands
+Start-MonitoringLoop
