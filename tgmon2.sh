@@ -392,4 +392,3 @@ send_telegram_message "Monitoring script started on server $SERVER_ID."
 
 handle_telegram_commands &
 monitoring_loop
-
