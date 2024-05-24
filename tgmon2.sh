@@ -239,7 +239,6 @@ EOF
                             local cmd_server_id=$(echo "$args" | awk '{print $1}')
                             if [ "$SERVER_TYPE" == "Proxmox" ] && [ "$cmd_server_id" == "$SERVER_ID" ]; then
                                 local vms=$(qm list | awk 'NR>1 {print $1, $2, $3}')
-                                local keyboard=()
                                 while read -r vm; do
                                     local vm_id=$(echo "$vm" | awk '{print $1}')
                                     local vm_name=$(echo "$vm" | awk '{print $2}')
@@ -249,9 +248,7 @@ EOF
                                     else
                                         send_telegram_message "🔴 [Server $SERVER_ID] $vm_name ($vm_id) is not running."
                                     fi
-                                    keyboard+=([{"text": "Status of $vm_name", "callback_data": "/status_vm $SERVER_ID $vm_id"}])
                                 done <<< "$vms"
-                                send_telegram_message "List of VMs on server $SERVER_ID:" "$(jq -n --argjson keyboard "$keyboard" '[[$keyboard]]')"
                             else
                                 send_telegram_message "Error: This command is only available for Proxmox servers."
                             fi
