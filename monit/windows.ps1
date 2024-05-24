@@ -67,9 +67,9 @@ function Send-TelegramMessage {
     param (
         [string]$message
     )
-    $apiUrl = "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
+    $apiUrl = "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/sendMessage"
     $postParams = @{
-        chat_id = $TELEGRAM_CHAT_ID
+        chat_id = $env:TELEGRAM_CHAT_ID
         text    = $message
     }
 
@@ -85,7 +85,7 @@ function Monitor-Services {
     $statusChanged = $false
     $currentStatus = ""
 
-    foreach ($service in $SERVICES_TO_MONITOR.Split(',')) {
+    foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
         $serviceStatus = Get-Service -Name $service
         if ($serviceStatus.Status -eq "Running") {
             $currentStatus += "$service:active;"
@@ -105,25 +105,24 @@ function Monitor-Services {
 
     if ($statusChanged) {
         $currentStatus | Out-File -FilePath $StatusFile -Force
-        foreach ($service in $SERVICES_TO_MONITOR.Split(',')) {
+        foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
             $serviceStatus = Get-Service -Name $service
             if ($serviceStatus.Status -eq "Running") {
-                Send-TelegramMessage "🟢 [Server $SERVER_ID] Service $service is active."
+                Send-TelegramMessage "🟢 [Server $($env:SERVER_ID)] Service $service is active."
             } else {
-                Send-TelegramMessage "🔴 [Server $SERVER_ID] Service $service is inactive."
+                Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] Service $service is inactive."
             }
         }
     }
 }
 
 function Monitor-Disk {
-    $diskUsage = Get-PSDrive -Name C | Select-Object -ExpandProperty Used
-    $totalSize = Get-PSDrive -Name C | Select-Object -ExpandProperty Used
-    $freeSpace = Get-PSDrive -Name C | Select-Object -ExpandProperty Free
-    $diskUsagePercent = [math]::round(($diskUsage / ($totalSize + $freeSpace)) * 100, 2)
+    $diskUsage = (Get-PSDrive -Name C).Used
+    $totalSize = (Get-PSDrive -Name C).Used + (Get-PSDrive -Name C).Free
+    $diskUsagePercent = [math]::round(($diskUsage / $totalSize) * 100, 2)
 
     if ($diskUsagePercent -ge (100 - $DiskThreshold)) {
-        Send-TelegramMessage "🔴 [Server $SERVER_ID] Disk usage is above $((100 - $DiskThreshold))%: ${diskUsagePercent}% used."
+        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] Disk usage is above $((100 - $DiskThreshold))%: ${diskUsagePercent}% used."
     }
 }
 
@@ -132,7 +131,7 @@ function Monitor-CPU {
     $cpuUsage = [math]::round($cpuUsage, 2)
 
     if ($cpuUsage -gt $CPUThreshold) {
-        Send-TelegramMessage "🔴 [Server $SERVER_ID] CPU load is above $CPUThreshold%: $cpuUsage%."
+        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] CPU load is above $CPUThreshold%: $cpuUsage%."
     }
 }
 
@@ -140,7 +139,7 @@ function Monitor-Memory {
     $mem = Get-WmiObject Win32_OperatingSystem
     $memUsage = [math]::round((($mem.TotalVisibleMemorySize - $mem.FreePhysicalMemory) / $mem.TotalVisibleMemorySize) * 100, 2)
     if ($memUsage -gt $MemThreshold) {
-        Send-TelegramMessage "🔴 [Server $SERVER_ID] Memory usage is above $($MemThreshold)%: $($memUsage)%."
+        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] Memory usage is above $($MemThreshold)%: $($memUsage)%."
     }
 }
 
@@ -158,7 +157,7 @@ function Handle-TelegramCommands {
     $lastUpdateID = 0
 
     while ($true) {
-        $response = Invoke-RestMethod -Uri "https://api.telegram.org/bot$TelegramBotToken/getUpdates?offset=$lastUpdateID"
+        $response = Invoke-RestMethod -Uri "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/getUpdates?offset=$lastUpdateID"
         $updates = $response.result
 
         foreach ($update in $updates) {
@@ -168,7 +167,7 @@ function Handle-TelegramCommands {
 
             Log "Processing update_id: $updateID, chat_id: $chatID, message_text: $messageText"
 
-            if ($chatID -eq $TelegramChatID) {
+            if ($chatID -eq $env:TELEGRAM_CHAT_ID) {
                 if ($messageText) {
                     $command = $messageText.Split()[0]
                     $args = $messageText.Substring($command.Length).Trim()
@@ -177,8 +176,8 @@ function Handle-TelegramCommands {
 
                     switch ($command) {
                         "/server_id" {
-                            Log "Sending server ID: $ServerID"
-                            Send-TelegramMessage "Server ID: $ServerID"
+                            Log "Sending server ID: $env:SERVER_ID"
+                            Send-TelegramMessage "Server ID: $env:SERVER_ID"
                         }
                         "/help" {
                             $helpMessage = @"
@@ -196,13 +195,13 @@ Available commands:
                         }
                         "/list_enabled_services" {
                             $cmdServerID = $args.Split()[0]
-                            if ($cmdServerID -eq $ServerID) {
-                                foreach ($service in $ServicesToMonitor) {
+                            if ($cmdServerID -eq $env:SERVER_ID) {
+                                foreach ($service in $env:SERVICES_TO_MONITOR.Split(',')) {
                                     $serviceStatus = Get-Service -Name $service
                                     if ($serviceStatus.Status -eq "Running") {
-                                        Send-TelegramMessage "🟢 [Server $ServerID] $service is active."
+                                        Send-TelegramMessage "🟢 [Server $($env:SERVER_ID)] $service is active."
                                     } else {
-                                        Send-TelegramMessage "🔴 [Server $ServerID] $service is inactive."
+                                        Send-TelegramMessage "🔴 [Server $($env:SERVER_ID)] $service is inactive."
                                     }
                                 }
                             }
@@ -210,56 +209,56 @@ Available commands:
                         "/status_service" {
                             $cmdServerID = $args.Split()[0]
                             $service = $args.Split()[1]
-                            if ($cmdServerID -eq $ServerID) {
+                            if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
                                 } else {
                                     $status = Get-Service -Name $service | Format-List -Property Name,Status,DisplayName,DependentServices,ServicesDependedOn
-                                    Send-TelegramMessage "Status of service $service on server $ServerID:`n$status"
+                                    Send-TelegramMessage "Status of service $service on server $env:SERVER_ID:`n$status"
                                 }
                             }
                         }
                         "/start_service" {
                             $cmdServerID = $args.Split()[0]
                             $service = $args.Split()[1]
-                            if ($cmdServerID -eq $ServerID) {
+                            if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
                                 } else {
                                     $result = Start-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service started on server $ServerID.`n$result"
+                                    Send-TelegramMessage "Service $service started on server $env:SERVER_ID.`n$result"
                                 }
                             }
                         }
                         "/stop_service" {
                             $cmdServerID = $args.Split()[0]
                             $service = $args.Split()[1]
-                            if ($cmdServerID -eq $ServerID) {
+                            if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
                                 } else {
                                     $result = Stop-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service stopped on server $ServerID.`n$result"
+                                    Send-TelegramMessage "Service $service stopped on server $env:SERVER_ID.`n$result"
                                 }
                             }
                         }
                         "/restart_service" {
                             $cmdServerID = $args.Split()[0]
                             $service = $args.Split()[1]
-                            if ($cmdServerID -eq $ServerID) {
+                            if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $service) {
                                     Send-TelegramMessage "Error: service must be specified."
                                 } else {
                                     $resultStop = Stop-Service -Name $service -PassThru
                                     $resultStart = Start-Service -Name $service -PassThru
-                                    Send-TelegramMessage "Service $service restarted on server $ServerID.`nStop result: $resultStop`nStart result: $resultStart"
+                                    Send-TelegramMessage "Service $service restarted on server $env:SERVER_ID.`nStop result: $resultStop`nStart result: $resultStart"
                                 }
                             }
                         }
                         "/run" {
                             $cmdServerID = $args.Split()[0]
                             $commandToRun = $args.Substring($cmdServerID.Length).Trim()
-                            if ($cmdServerID -eq $ServerID) {
+                            if ($cmdServerID -eq $env:SERVER_ID) {
                                 if (-not $commandToRun) {
                                     Send-TelegramMessage "Error: command must be specified."
                                 } else {
@@ -282,7 +281,7 @@ Available commands:
     }
 }
 
-Send-TelegramMessage "Monitoring script started on server $ServerID."
+Send-TelegramMessage "Monitoring script started on server $($env:SERVER_ID)."
 
 Handle-TelegramCommands
 Monitoring-Loop
