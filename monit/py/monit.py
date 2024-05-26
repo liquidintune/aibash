@@ -8,6 +8,7 @@ from time import sleep
 from typing import List, Dict, Any
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, Updater, CallbackContext
+
 from proxmoxer import ProxmoxAPI
 
 # Constants
@@ -252,7 +253,7 @@ def help_command(update: Update, context: CallbackContext) -> None:
 
 def setup_telegram_commands() -> Updater:
     """Setup Telegram bot commands."""
-    updater = Updater(config['telegram_token'], use_context=True)
+    updater = Updater(token=config['telegram_token'])
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start, pass_args=True))
     dispatcher.add_handler(CommandHandler('stop', stop, pass_args=True))
