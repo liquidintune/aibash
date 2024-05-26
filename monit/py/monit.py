@@ -13,6 +13,7 @@ from telegram.error import BadRequest
 # Constants
 CONFIG_FILE = 'config.json'
 LOG_FILE = 'monitoring.log'
+MAX_MESSAGE_LENGTH = 4096
 
 # Setup logging
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
@@ -98,7 +99,11 @@ bot = Bot(token=config['telegram_token'])
 def send_telegram_message(message: str) -> None:
     """Send a message to the configured Telegram chat."""
     try:
-        bot.send_message(chat_id=config['chat_id'], text=message)
+        if len(message) > MAX_MESSAGE_LENGTH:
+            for i in range(0, len(message), MAX_MESSAGE_LENGTH):
+                bot.send_message(chat_id=config['chat_id'], text=message[i:i + MAX_MESSAGE_LENGTH])
+        else:
+            bot.send_message(chat_id=config['chat_id'], text=message)
         logging.info(f"Sent message to Telegram: {message}")
     except BadRequest as e:
         logging.error(f"BadRequest error: {e.message}")
@@ -215,7 +220,8 @@ async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             except BadRequest as e:
                 logging.error(f"BadRequest error when sending VM status: {e.message}")
         try:
-            await update.message.reply_text('\n'.join(vm_status_list))
+            for i in range(0, len(vm_status_list), MAX_MESSAGE_LENGTH):
+                await update.message.reply_text('\n'.join(vm_status_list[i:i + MAX_MESSAGE_LENGTH]))
         except BadRequest as e:
             logging.error(f"BadRequest error when sending VM status list: {e.message}")
 
