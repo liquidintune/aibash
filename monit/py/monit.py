@@ -79,6 +79,13 @@ def setup_telegram() -> Dict[str, Any]:
             print(f"Detected server type: {detected_type}")
         config['server_type'] = input(f'Enter server type (default: {detected_type}): ') or detected_type
         save_config(config)
+
+    if config['server_type'] == 'proxmox' and (not config['proxmox']['host'] or not config['proxmox']['username'] or not config['proxmox']['password']):
+        config['proxmox']['host'] = input('Enter Proxmox host: ')
+        config['proxmox']['username'] = input('Enter Proxmox username: ')
+        config['proxmox']['password'] = input('Enter Proxmox password: ')
+        save_config(config)
+
     return config
 
 config = setup_telegram()
