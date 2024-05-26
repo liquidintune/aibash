@@ -8,6 +8,7 @@ from time import sleep
 from typing import List, Dict, Any
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ApplicationBuilder, ContextTypes
+from telegram.error import BadRequest
 
 # Constants
 CONFIG_FILE = 'config.json'
@@ -99,6 +100,8 @@ def send_telegram_message(message: str) -> None:
     try:
         bot.send_message(chat_id=config['chat_id'], text=message)
         logging.info(f"Sent message to Telegram: {message}")
+    except BadRequest as e:
+        logging.error(f"BadRequest error: {e.message}")
     except Exception as e:
         logging.error(f"Failed to send message to Telegram: {e}")
 
@@ -207,8 +210,14 @@ async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                  InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
-            await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
-        await update.message.reply_text('\n'.join(vm_status_list))
+            try:
+                await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
+            except BadRequest as e:
+                logging.error(f"BadRequest error when sending VM status: {e.message}")
+        try:
+            await update.message.reply_text('\n'.join(vm_status_list))
+        except BadRequest as e:
+            logging.error(f"BadRequest error when sending VM status list: {e.message}")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle button presses in Telegram."""
