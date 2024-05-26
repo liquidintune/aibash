@@ -5,8 +5,9 @@ import psutil
 import subprocess
 import logging
 from time import sleep
+from typing import List, Dict, Any
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, Updater
+from telegram.ext import CommandHandler, CallbackQueryHandler, Updater, CallbackContext
 from proxmoxer import ProxmoxAPI
 
 # Constants
@@ -17,8 +18,16 @@ LOG_FILE = 'monitoring.log'
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Load or initialize configuration
-def load_config():
+# Define known services for auto-detection
+KNOWN_SERVICES = {
+    'FreePBX': ['asterisk'],
+    'LNMP': ['nginx', 'php-fpm', 'mysql'],
+    'Zimbra': ['zimbra'],
+    'Proxmox': ['pve-cluster', 'pveproxy']
+}
+
+def load_config() -> Dict[str, Any]:
+    """Load or initialize configuration."""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r') as f:
             return json.load(f)
@@ -37,38 +46,59 @@ def load_config():
             'remote_servers': []
         }
 
-def save_config(config):
+def save_config(config: Dict[str, Any]) -> None:
+    """Save configuration to a file."""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f)
 
-# Telegram setup
-def setup_telegram():
+def detect_server_type() -> str:
+    """Detect server type based on installed services."""
+    detected_types = []
+    for server_type, services in KNOWN_SERVICES.items():
+        if all(subprocess.run(['systemctl', 'is-active', service], stdout=subprocess.PIPE).returncode == 0 for service in services):
+            detected_types.append(server_type)
+    
+    if len(detected_types) == 1:
+        return detected_types[0]
+    elif len(detected_types) > 1:
+        logging.warning(f"Multiple server types detected: {detected_types}. Defaulting to {detected_types[0]}.")
+        return detected_types[0]
+    else:
+        return 'unknown'
+
+def setup_telegram() -> Dict[str, Any]:
+    """Setup Telegram bot configuration."""
     config = load_config()
     if not config['telegram_token'] or not config['chat_id'] or not config['server_id'] or not config['server_type']:
         config['telegram_token'] = input('Enter Telegram bot token: ')
         config['chat_id'] = input('Enter chat ID: ')
         config['server_id'] = input('Enter server ID: ')
-        config['server_type'] = input('Enter server type: ')
+        detected_type = detect_server_type()
+        if detected_type != 'unknown':
+            print(f"Detected server type: {detected_type}")
+        config['server_type'] = input(f'Enter server type (default: {detected_type}): ') or detected_type
         save_config(config)
     return config
 
 config = setup_telegram()
 bot = Bot(token=config['telegram_token'])
 
-def send_telegram_message(message):
+def send_telegram_message(message: str) -> None:
+    """Send a message to the configured Telegram chat."""
     try:
         bot.send_message(chat_id=config['chat_id'], text=message)
         logging.info(f"Sent message to Telegram: {message}")
     except Exception as e:
         logging.error(f"Failed to send message to Telegram: {e}")
 
-def check_server_id(context):
+def check_server_id(context: CallbackContext) -> bool:
+    """Check if the server ID matches the one in the configuration."""
     if len(context.args) == 0 or context.args[0] != config['server_id']:
         return False
     return True
 
-# Monitor system services
-def monitor_services():
+def monitor_services() -> None:
+    """Monitor system services."""
     for service in config['services']:
         try:
             result = subprocess.run(['systemctl', 'is-active', service], stdout=subprocess.PIPE)
@@ -78,8 +108,8 @@ def monitor_services():
         except Exception as e:
             logging.error(f"Error monitoring service {service}: {e}")
 
-# Monitor Proxmox VMs
-def monitor_proxmox_vms():
+def monitor_proxmox_vms() -> None:
+    """Monitor Proxmox virtual machines."""
     try:
         proxmox = ProxmoxAPI(config['proxmox']['host'], user=config['proxmox']['username'], password=config['proxmox']['password'], verify_ssl=False)
         for node in proxmox.nodes.get():
@@ -91,8 +121,8 @@ def monitor_proxmox_vms():
     except Exception as e:
         logging.error(f"Error monitoring Proxmox VMs: {e}")
 
-# Monitor remote servers
-def monitor_remote_servers():
+def monitor_remote_servers() -> None:
+    """Monitor remote servers using ping."""
     for server in config['remote_servers']:
         try:
             result = subprocess.run(['ping', '-c', '1', server], stdout=subprocess.PIPE)
@@ -102,8 +132,8 @@ def monitor_remote_servers():
         except Exception as e:
             logging.error(f"Error monitoring remote server {server}: {e}")
 
-# Monitor system resources
-def monitor_resources():
+def monitor_resources() -> None:
+    """Monitor system resources."""
     try:
         disk_usage = psutil.disk_usage('/')
         if disk_usage.percent > 90:
@@ -122,20 +152,23 @@ def monitor_resources():
     except Exception as e:
         logging.error(f"Error monitoring system resources: {e}")
 
-# Handle Telegram commands
-def start(update, context):
+def start(update: Update, context: CallbackContext) -> None:
+    """Handle the /start command."""
     if check_server_id(context):
         update.message.reply_text('Monitoring started.')
 
-def stop(update, context):
+def stop(update: Update, context: CallbackContext) -> None:
+    """Handle the /stop command."""
     if check_server_id(context):
         update.message.reply_text('Monitoring stopped.')
 
-def status(update, context):
+def status(update: Update, context: CallbackContext) -> None:
+    """Handle the /status command."""
     if check_server_id(context):
         update.message.reply_text('Monitoring status: running')
 
-def service_status(update, context):
+def service_status(update: Update, context: CallbackContext) -> None:
+    """Handle the /service_status command."""
     if check_server_id(context):
         services_status = []
         for service in config['services']:
@@ -150,7 +183,8 @@ def service_status(update, context):
             reply_markup = InlineKeyboardMarkup(buttons)
             update.message.reply_text(f"{service}: {status}", reply_markup=reply_markup)
 
-def vm_status(update, context):
+def vm_status(update: Update, context: CallbackContext) -> None:
+    """Handle the /vm_status command."""
     if check_server_id(context):
         try:
             proxmox = ProxmoxAPI(config['proxmox']['host'], user=config['proxmox']['username'], password=config['proxmox']['password'], verify_ssl=False)
@@ -170,7 +204,8 @@ def vm_status(update, context):
             logging.error(f"Error fetching VM status: {e}")
             update.message.reply_text(f"Error fetching VM status: {e}")
 
-def button_handler(update, context):
+def button_handler(update: Update, context: CallbackContext) -> None:
+    """Handle button presses in Telegram."""
     query = update.callback_query
     query.answer()
     data = query.data.split(":")
@@ -199,10 +234,12 @@ def button_handler(update, context):
             proxmox.nodes(node).qemu(vmid).status.reboot.post()
         query.edit_message_text(text=f"VM ID {vmid} action {action} performed.")
 
-def server_id_command(update, context):
+def server_id_command(update: Update, context: CallbackContext) -> None:
+    """Handle the /server_id command."""
     update.message.reply_text(f'Server ID: {config["server_id"]}')
 
-def help_command(update, context):
+def help_command(update: Update, context: CallbackContext) -> None:
+    """Handle the /help command."""
     help_text = """
     /start <server_id> - Start monitoring
     /stop <server_id> - Stop monitoring
@@ -213,8 +250,9 @@ def help_command(update, context):
     """
     update.message.reply_text(help_text)
 
-def setup_telegram_commands():
-    updater = Updater(token=config['telegram_token'], use_context=True)
+def setup_telegram_commands() -> Updater:
+    """Setup Telegram bot commands."""
+    updater = Updater(config['telegram_token'], use_context=True)
     dispatcher = updater.dispatcher
     dispatcher.add_handler(CommandHandler('start', start, pass_args=True))
     dispatcher.add_handler(CommandHandler('stop', stop, pass_args=True))
