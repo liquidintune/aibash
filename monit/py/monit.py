@@ -76,7 +76,7 @@ def setup_telegram() -> Dict[str, Any]:
         config['server_type'] = input(f'Enter server type (default: {detected_type}): ') or detected_type
         save_config(config)
 
-    if config['server_type'] == 'proxmox' and not config['proxmox']['vm_ids']:
+    if config['server_type'] == 'proxmox' and 'vm_ids' not in config['proxmox']:
         config['proxmox']['vm_ids'] = input('Enter Proxmox VM IDs (comma-separated): ').split(',')
         save_config(config)
 
@@ -250,11 +250,11 @@ def setup_telegram_commands() -> Application:
     """Setup Telegram bot commands."""
     application = ApplicationBuilder().token(config['telegram_token']).build()
 
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('stop', stop))
-    application.add_handler(CommandHandler('status', status))
-    application.add_handler(CommandHandler('service_status', service_status))
-    application.add_handler(CommandHandler('vm_status', vm_status))
+    application.add_handler(CommandHandler('start', start, pass_args=True))
+    application.add_handler(CommandHandler('stop', stop, pass_args=True))
+    application.add_handler(CommandHandler('status', status, pass_args=True))
+    application.add_handler(CommandHandler('service_status', service_status, pass_args=True))
+    application.add_handler(CommandHandler('vm_status', vm_status, pass_args=True))
     application.add_handler(CommandHandler('server_id', server_id_command))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(CallbackQueryHandler(button_handler))
