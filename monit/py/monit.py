@@ -102,7 +102,7 @@ def send_telegram_message(message: str) -> None:
     except Exception as e:
         logging.error(f"Failed to send message to Telegram: {e}")
 
-def check_server_id(context: ContextTypes.DEFAULT_TYPE) -> bool:
+def check_server_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if the server ID matches the one in the configuration."""
     if len(context.args) == 0 or context.args[0] != config['server_id']:
         return False
@@ -164,22 +164,22 @@ def monitor_resources() -> None:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command."""
-    if check_server_id(context):
+    if check_server_id(update, context):
         await update.message.reply_text('Monitoring started.')
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /stop command."""
-    if check_server_id(context):
+    if check_server_id(update, context):
         await update.message.reply_text('Monitoring stopped.')
 
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /status command."""
-    if check_server_id(context):
+    if check_server_id(update, context):
         await update.message.reply_text('Monitoring status: running')
 
 async def service_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /service_status command."""
-    if check_server_id(context):
+    if check_server_id(update, context):
         services_status = []
         for service in config['services']:
             result = subprocess.run(['systemctl', 'is-active', service], stdout=subprocess.PIPE)
@@ -195,7 +195,7 @@ async def service_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /vm_status command."""
-    if check_server_id(context):
+    if check_server_id(update, context):
         vm_status_list = []
         for vm_id in config['proxmox']['vm_ids']:
             result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
@@ -258,11 +258,11 @@ def setup_telegram_commands() -> Application:
     """Setup Telegram bot commands."""
     application = ApplicationBuilder().token(config['telegram_token']).build()
 
-    application.add_handler(CommandHandler('start', start, pass_args=True))
-    application.add_handler(CommandHandler('stop', stop, pass_args=True))
-    application.add_handler(CommandHandler('status', status, pass_args=True))
-    application.add_handler(CommandHandler('service_status', service_status, pass_args=True))
-    application.add_handler(CommandHandler('vm_status', vm_status, pass_args=True))
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('stop', stop))
+    application.add_handler(CommandHandler('status', status))
+    application.add_handler(CommandHandler('service_status', service_status))
+    application.add_handler(CommandHandler('vm_status', vm_status))
     application.add_handler(CommandHandler('server_id', server_id_command))
     application.add_handler(CommandHandler('help', help_command))
     application.add_handler(CallbackQueryHandler(button_handler))
