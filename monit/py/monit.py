@@ -7,7 +7,7 @@ import logging
 from time import sleep
 from typing import List, Dict, Any
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CommandHandler, CallbackQueryHandler, Updater, CallbackContext
+from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ApplicationBuilder, ContextTypes
 
 from proxmoxer import ProxmoxAPI
 
@@ -92,7 +92,7 @@ def send_telegram_message(message: str) -> None:
     except Exception as e:
         logging.error(f"Failed to send message to Telegram: {e}")
 
-def check_server_id(context: CallbackContext) -> bool:
+def check_server_id(context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Check if the server ID matches the one in the configuration."""
     if len(context.args) == 0 or context.args[0] != config['server_id']:
         return False
@@ -153,22 +153,22 @@ def monitor_resources() -> None:
     except Exception as e:
         logging.error(f"Error monitoring system resources: {e}")
 
-def start(update: Update, context: CallbackContext) -> None:
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /start command."""
     if check_server_id(context):
-        update.message.reply_text('Monitoring started.')
+        await update.message.reply_text('Monitoring started.')
 
-def stop(update: Update, context: CallbackContext) -> None:
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /stop command."""
     if check_server_id(context):
-        update.message.reply_text('Monitoring stopped.')
+        await update.message.reply_text('Monitoring stopped.')
 
-def status(update: Update, context: CallbackContext) -> None:
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /status command."""
     if check_server_id(context):
-        update.message.reply_text('Monitoring status: running')
+        await update.message.reply_text('Monitoring status: running')
 
-def service_status(update: Update, context: CallbackContext) -> None:
+async def service_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /service_status command."""
     if check_server_id(context):
         services_status = []
@@ -182,9 +182,9 @@ def service_status(update: Update, context: CallbackContext) -> None:
                  InlineKeyboardButton("Restart", callback_data=f"restart_service:{service}")]
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
-            update.message.reply_text(f"{service}: {status}", reply_markup=reply_markup)
+            await update.message.reply_text(f"{service}: {status}", reply_markup=reply_markup)
 
-def vm_status(update: Update, context: CallbackContext) -> None:
+async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /vm_status command."""
     if check_server_id(context):
         try:
@@ -200,15 +200,15 @@ def vm_status(update: Update, context: CallbackContext) -> None:
                          InlineKeyboardButton("Restart", callback_data=f"restart_vm:{node['node']}:{vm['vmid']}")]
                     ]
                     reply_markup = InlineKeyboardMarkup(buttons)
-                    update.message.reply_text(f"VM {vm['name']} (ID {vm['vmid']}): {vm_status['status']}", reply_markup=reply_markup)
+                    await update.message.reply_text(f"VM {vm['name']} (ID {vm['vmid']}): {vm_status['status']}", reply_markup=reply_markup)
         except Exception as e:
             logging.error(f"Error fetching VM status: {e}")
-            update.message.reply_text(f"Error fetching VM status: {e}")
+            await update.message.reply_text(f"Error fetching VM status: {e}")
 
-def button_handler(update: Update, context: CallbackContext) -> None:
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle button presses in Telegram."""
     query = update.callback_query
-    query.answer()
+    await query.answer()
     data = query.data.split(":")
     action = data[0]
     target_type = data[1]
@@ -221,7 +221,7 @@ def button_handler(update: Update, context: CallbackContext) -> None:
             subprocess.run(['systemctl', 'stop', service_name])
         elif action == "restart_service":
             subprocess.run(['systemctl', 'restart', service_name])
-        query.edit_message_text(text=f"Service {service_name} action {action} performed.")
+        await query.edit_message_text(text=f"Service {service_name} action {action} performed.")
 
     if target_type == "vm":
         node = data[2]
@@ -233,13 +233,13 @@ def button_handler(update: Update, context: CallbackContext) -> None:
             proxmox.nodes(node).qemu(vmid).status.stop.post()
         elif action == "restart_vm":
             proxmox.nodes(node).qemu(vmid).status.reboot.post()
-        query.edit_message_text(text=f"VM ID {vmid} action {action} performed.")
+        await query.edit_message_text(text=f"VM ID {vmid} action {action} performed.")
 
-def server_id_command(update: Update, context: CallbackContext) -> None:
+async def server_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /server_id command."""
-    update.message.reply_text(f'Server ID: {config["server_id"]}')
+    await update.message.reply_text(f'Server ID: {config["server_id"]}')
 
-def help_command(update: Update, context: CallbackContext) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /help command."""
     help_text = """
     /start <server_id> - Start monitoring
@@ -249,24 +249,25 @@ def help_command(update: Update, context: CallbackContext) -> None:
     /vm_status <server_id> - Get status of VMs with control buttons
     /server_id - Get server ID
     """
-    update.message.reply_text(help_text)
+    await update.message.reply_text(help_text)
 
-def setup_telegram_commands() -> Updater:
+def setup_telegram_commands() -> Application:
     """Setup Telegram bot commands."""
-    updater = Updater(token=config['telegram_token'])
-    dispatcher = updater.dispatcher
-    dispatcher.add_handler(CommandHandler('start', start, pass_args=True))
-    dispatcher.add_handler(CommandHandler('stop', stop, pass_args=True))
-    dispatcher.add_handler(CommandHandler('status', status, pass_args=True))
-    dispatcher.add_handler(CommandHandler('service_status', service_status, pass_args=True))
-    dispatcher.add_handler(CommandHandler('vm_status', vm_status, pass_args=True))
-    dispatcher.add_handler(CommandHandler('server_id', server_id_command))
-    dispatcher.add_handler(CommandHandler('help', help_command))
-    dispatcher.add_handler(CallbackQueryHandler(button_handler))
-    updater.start_polling()
-    return updater
+    application = ApplicationBuilder().token(config['telegram_token']).build()
 
-updater = setup_telegram_commands()
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('stop', stop))
+    application.add_handler(CommandHandler('status', status))
+    application.add_handler(CommandHandler('service_status', service_status))
+    application.add_handler(CommandHandler('vm_status', vm_status))
+    application.add_handler(CommandHandler('server_id', server_id_command))
+    application.add_handler(CommandHandler('help', help_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
+
+    application.run_polling()
+    return application
+
+application = setup_telegram_commands()
 
 # Main monitoring loop
 while True:
