@@ -49,12 +49,14 @@ def load_config() -> Dict[str, Any]:
     if 'vm_ids' not in config['proxmox']:
         config['proxmox']['vm_ids'] = []
     
+    logging.info(f"Loaded config: {json.dumps(config, indent=2)}")
     return config
 
 def save_config(config: Dict[str, Any]) -> None:
     """Save configuration to a file."""
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f)
+    logging.info(f"Saved config: {json.dumps(config, indent=2)}")
 
 def detect_server_type() -> str:
     """Detect server type based on installed services."""
@@ -91,10 +93,10 @@ def setup_config() -> Dict[str, Any]:
     logging.info(f"Proxmox Configuration: {config['proxmox']}")
     return config
 
-def log_telegram_api_request(response):
-    """Log the Telegram API request."""
-    logging.info(f"HTTP Request: {response.request.method} {response.url} {response.status_code}")
-    logging.info(f"Response: {response.text}")
+def log_telegram_api_request(response, endpoint, data=None):
+    """Log the Telegram API request and response."""
+    logging.info(f"Request to Telegram API endpoint '{endpoint}': {json.dumps(data, indent=2) if data else 'No data'}")
+    logging.info(f"HTTP Response: {response.status_code} {response.text}")
 
 def send_telegram_message(config: Dict[str, Any], message: str, reply_markup=None) -> None:
     """Send a message to the configured Telegram chat."""
@@ -103,11 +105,11 @@ def send_telegram_message(config: Dict[str, Any], message: str, reply_markup=Non
         if len(message) > MAX_MESSAGE_LENGTH:
             for i in range(0, len(message), MAX_MESSAGE_LENGTH):
                 response = bot.send_message(chat_id=config['chat_id'], text=message[i:i + MAX_MESSAGE_LENGTH], reply_markup=reply_markup)
-                log_telegram_api_request(response)
+                log_telegram_api_request(response, 'sendMessage', {'chat_id': config['chat_id'], 'text': message[i:i + MAX_MESSAGE_LENGTH]})
                 sleep(1)  # Adding delay between messages
         else:
             response = bot.send_message(chat_id=config['chat_id'], text=message, reply_markup=reply_markup)
-            log_telegram_api_request(response)
+            log_telegram_api_request(response, 'sendMessage', {'chat_id': config['chat_id'], 'text': message})
         logging.info(f"Sent message to Telegram: {message}")
     except BadRequest as e:
         logging.error(f"BadRequest error: {e.message}")
