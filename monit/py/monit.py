@@ -8,7 +8,6 @@ from time import sleep
 from typing import List, Dict, Any
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ApplicationBuilder, ContextTypes
-
 from proxmoxer import ProxmoxAPI
 
 # Constants
@@ -81,11 +80,12 @@ def setup_telegram() -> Dict[str, Any]:
         save_config(config)
 
     if config['server_type'] == 'proxmox' and (not config['proxmox']['host'] or not config['proxmox']['username'] or not config['proxmox']['password']):
-        config['proxmox']['host'] = input('Enter Proxmox host: ')
-        config['proxmox']['username'] = input('Enter Proxmox username: ')
+        config['proxmox']['host'] = input('Enter Proxmox host (e.g., 192.168.1.1): ')
+        config['proxmox']['username'] = input('Enter Proxmox username (e.g., root@pam): ')
         config['proxmox']['password'] = input('Enter Proxmox password: ')
         save_config(config)
 
+    logging.info(f"Proxmox Configuration: {config['proxmox']}")
     return config
 
 config = setup_telegram()
@@ -119,6 +119,7 @@ def monitor_services() -> None:
 def monitor_proxmox_vms() -> None:
     """Monitor Proxmox virtual machines."""
     try:
+        logging.info(f"Connecting to Proxmox at {config['proxmox']['host']}")
         proxmox = ProxmoxAPI(config['proxmox']['host'], user=config['proxmox']['username'], password=config['proxmox']['password'], verify_ssl=False)
         for node in proxmox.nodes.get():
             for vm in proxmox.nodes(node['node']).qemu.get():
