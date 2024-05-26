@@ -139,9 +139,6 @@ def monitor_proxmox_vms(config: Dict[str, Any]) -> None:
             vm_id = parts[0]
             name = parts[1]
             status = parts[-1]
-            if status != 'running':
-                send_telegram_message(config, f"VM {name} (ID {vm_id}) is not running")
-                logging.warning(f"VM {name} (ID {vm_id}) is not running")
             buttons = [
                 [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
                  InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
