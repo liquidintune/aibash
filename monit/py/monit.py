@@ -212,7 +212,11 @@ async def vm_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
             await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
-        await update.message.reply_text('\n'.join(vm_status_list))
+        
+        if vm_status_list:
+            await update.message.reply_text('\n'.join(vm_status_list))
+        else:
+            await update.message.reply_text("No VMs found or unable to retrieve VM status.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
