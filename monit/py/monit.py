@@ -6,7 +6,7 @@ import subprocess
 import logging
 from time import sleep
 from typing import List, Dict, Any
-from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ApplicationBuilder, ContextTypes
 from telegram.error import BadRequest
 
@@ -14,18 +14,16 @@ from telegram.error import BadRequest
 CONFIG_FILE = 'config.json'
 LOG_FILE = 'monitoring.log'
 MAX_MESSAGE_LENGTH = 4096
-
-# Setup logging
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
-
-# Define known services for auto-detection
 KNOWN_SERVICES = {
     'FreePBX': ['asterisk'],
     'LNMP': ['nginx', 'php-fpm', 'mysql'],
     'Zimbra': ['zimbra'],
     'Proxmox': ['pve-cluster', 'pveproxy']
 }
+
+# Setup logging
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
 def load_config() -> Dict[str, Any]:
     """Load or initialize configuration."""
@@ -73,7 +71,7 @@ def detect_server_type() -> str:
     else:
         return 'unknown'
 
-def setup_telegram() -> Dict[str, Any]:
+def setup_config() -> Dict[str, Any]:
     """Setup Telegram bot configuration."""
     config = load_config()
     if not config['telegram_token'] or not config['chat_id'] or not config['server_id'] or not config['server_type']:
@@ -93,11 +91,9 @@ def setup_telegram() -> Dict[str, Any]:
     logging.info(f"Proxmox Configuration: {config['proxmox']}")
     return config
 
-config = setup_telegram()
-bot = Bot(token=config['telegram_token'])
-
-def send_telegram_message(message: str) -> None:
+def send_telegram_message(config: Dict[str, Any], message: str) -> None:
     """Send a message to the configured Telegram chat."""
+    bot = Bot(token=config['telegram_token'])
     try:
         if len(message) > MAX_MESSAGE_LENGTH:
             for i in range(0, len(message), MAX_MESSAGE_LENGTH):
@@ -110,84 +106,84 @@ def send_telegram_message(message: str) -> None:
     except Exception as e:
         logging.error(f"Failed to send message to Telegram: {e}")
 
-def check_server_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+def check_server_id(update: Update, context: ContextTypes.DEFAULT_TYPE, config: Dict[str, Any]) -> bool:
     """Check if the server ID matches the one in the configuration."""
     if len(context.args) == 0 or context.args[0] != config['server_id']:
         return False
     return True
 
-def monitor_services() -> None:
+def monitor_services(config: Dict[str, Any]) -> None:
     """Monitor system services."""
     for service in config['services']:
         try:
             result = subprocess.run(['systemctl', 'is-active', service], stdout=subprocess.PIPE)
             if result.stdout.decode('utf-8').strip() != 'active':
-                send_telegram_message(f'Service {service} is down')
+                send_telegram_message(config, f'Service {service} is down')
                 logging.warning(f"Service {service} is down")
         except Exception as e:
             logging.error(f"Error monitoring service {service}: {e}")
 
-def monitor_proxmox_vms() -> None:
+def monitor_proxmox_vms(config: Dict[str, Any]) -> None:
     """Monitor Proxmox virtual machines using command line."""
     try:
         for vm_id in config['proxmox']['vm_ids']:
             result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
             status = result.stdout.decode('utf-8').strip()
             if "status: running" not in status:
-                send_telegram_message(f"VM ID {vm_id} is not running")
+                send_telegram_message(config, f"VM ID {vm_id} is not running")
                 logging.warning(f"VM ID {vm_id} is not running")
     except Exception as e:
         logging.error(f"Error monitoring Proxmox VMs: {e}")
 
-def monitor_remote_servers() -> None:
+def monitor_remote_servers(config: Dict[str, Any]) -> None:
     """Monitor remote servers using ping."""
     for server in config['remote_servers']:
         try:
             result = subprocess.run(['ping', '-c', '1', server], stdout=subprocess.PIPE)
             if result.returncode != 0:
-                send_telegram_message(f'Remote server {server} is unreachable')
+                send_telegram_message(config, f'Remote server {server} is unreachable')
                 logging.warning(f"Remote server {server} is unreachable")
         except Exception as e:
             logging.error(f"Error monitoring remote server {server}: {e}")
 
-def monitor_resources() -> None:
+def monitor_resources(config: Dict[str, Any]) -> None:
     """Monitor system resources."""
     try:
         disk_usage = psutil.disk_usage('/')
         if disk_usage.percent > 90:
-            send_telegram_message(f'Disk usage is at {disk_usage.percent}%')
+            send_telegram_message(config, f'Disk usage is at {disk_usage.percent}%')
             logging.warning(f"Disk usage is at {disk_usage.percent}%")
         
         memory_usage = psutil.virtual_memory()
         if memory_usage.percent > 90:
-            send_telegram_message(f'Memory usage is at {memory_usage.percent}%')
+            send_telegram_message(config, f'Memory usage is at {memory_usage.percent}%')
             logging.warning(f"Memory usage is at {memory_usage.percent}%")
         
         cpu_usage = psutil.cpu_percent(interval=1)
         if cpu_usage > 90:
-            send_telegram_message(f'CPU usage is at {cpu_usage}%')
+            send_telegram_message(config, f'CPU usage is at {cpu_usage}%')
             logging.warning(f"CPU usage is at {cpu_usage}%")
     except Exception as e:
         logging.error(f"Error monitoring system resources: {e}")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /start command."""
-    if check_server_id(update, context):
+async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = setup_config()
+    if check_server_id(update, context, config):
         await update.message.reply_text('Monitoring started.')
 
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /stop command."""
-    if check_server_id(update, context):
+async def stop_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = setup_config()
+    if check_server_id(update, context, config):
         await update.message.reply_text('Monitoring stopped.')
 
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /status command."""
-    if check_server_id(update, context):
+async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = setup_config()
+    if check_server_id(update, context, config):
         await update.message.reply_text('Monitoring status: running')
 
-async def service_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /service_status command."""
-    if check_server_id(update, context):
+async def service_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = setup_config()
+    if check_server_id(update, context, config):
         services_status = []
         for service in config['services']:
             result = subprocess.run(['systemctl', 'is-active', service], stdout=subprocess.PIPE)
@@ -201,9 +197,9 @@ async def service_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             reply_markup = InlineKeyboardMarkup(buttons)
             await update.message.reply_text(f"{service}: {status}", reply_markup=reply_markup)
 
-async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /vm_status command."""
-    if check_server_id(update, context):
+async def vm_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = setup_config()
+    if check_server_id(update, context, config):
         vm_status_list = []
         for vm_id in config['proxmox']['vm_ids']:
             result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
@@ -215,23 +211,16 @@ async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                  InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}")]
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
-            try:
-                await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
-            except BadRequest as e:
-                logging.error(f"BadRequest error when sending VM status: {e.message}")
-        try:
-            for i in range(0, len(vm_status_list), MAX_MESSAGE_LENGTH):
-                await update.message.reply_text('\n'.join(vm_status_list[i:i + MAX_MESSAGE_LENGTH]))
-        except BadRequest as e:
-            logging.error(f"BadRequest error when sending VM status list: {e.message}")
+            await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
+        await update.message.reply_text('\n'.join(vm_status_list))
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle button presses in Telegram."""
     query = update.callback_query
     await query.answer()
     data = query.data.split(":")
     action = data[0]
     target_type = data[1]
+    config = setup_config()
     
     if target_type == "service":
         service_name = data[2]
@@ -253,12 +242,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             subprocess.run(['qm', 'reset', vm_id])
         await query.edit_message_text(text=f"VM ID {vm_id} action {action} performed.")
 
-async def server_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /server_id command."""
+async def server_id_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    config = setup_config()
     await update.message.reply_text(f'Server ID: {config["server_id"]}')
 
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle the /help command."""
+async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     help_text = """
     /start <server_id> - Start monitoring
     /stop <server_id> - Stop monitoring
@@ -269,34 +257,38 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """
     await update.message.reply_text(help_text)
 
-def setup_telegram_commands() -> Application:
+def setup_telegram_commands(config: Dict[str, Any]) -> Application:
     """Setup Telegram bot commands."""
     application = ApplicationBuilder().token(config['telegram_token']).build()
 
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(CommandHandler('stop', stop))
-    application.add_handler(CommandHandler('status', status))
-    application.add_handler(CommandHandler('service_status', service_status))
-    application.add_handler(CommandHandler('vm_status', vm_status))
-    application.add_handler(CommandHandler('server_id', server_id_command))
-    application.add_handler(CommandHandler('help', help_command))
+    application.add_handler(CommandHandler('start', start_handler))
+    application.add_handler(CommandHandler('stop', stop_handler))
+    application.add_handler(CommandHandler('status', status_handler))
+    application.add_handler(CommandHandler('service_status', service_status_handler))
+    application.add_handler(CommandHandler('vm_status', vm_status_handler))
+    application.add_handler(CommandHandler('server_id', server_id_handler))
+    application.add_handler(CommandHandler('help', help_handler))
     application.add_handler(CallbackQueryHandler(button_handler))
 
     application.run_polling()
     return application
 
-application = setup_telegram_commands()
+# Load or setup configuration
+config = setup_config()
+
+# Setup Telegram bot
+application = setup_telegram_commands(config)
 
 # Main monitoring loop
 while True:
     if config['server_type'] == 'service':
-        monitor_services()
+        monitor_services(config)
     elif config['server_type'] == 'proxmox':
-        monitor_proxmox_vms()
+        monitor_proxmox_vms(config)
     elif config['server_type'] == 'remote':
-        monitor_remote_servers()
+        monitor_remote_servers(config)
     elif config['server_type'] in ['FreePBX', 'LNMP', 'Zimbra']:
-        monitor_services()
+        monitor_services(config)
     
-    monitor_resources()
+    monitor_resources(config)
     sleep(60)
