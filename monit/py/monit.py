@@ -126,12 +126,22 @@ def monitor_services(config: Dict[str, Any]) -> None:
 def monitor_proxmox_vms(config: Dict[str, Any]) -> None:
     """Monitor Proxmox virtual machines using command line."""
     try:
-        for vm_id in config['proxmox']['vm_ids']:
-            result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
-            status = result.stdout.decode('utf-8').strip()
-            if "status: running" not in status:
-                send_telegram_message(config, f"VM ID {vm_id} is not running")
-                logging.warning(f"VM ID {vm_id} is not running")
+        result = subprocess.run(['qm', 'list'], stdout=subprocess.PIPE)
+        output = result.stdout.decode('utf-8').strip()
+        logging.info(f"Proxmox qm list output:\n{output}")
+        vm_status_list = output.split('\n')[1:]  # Skip the header line
+        if not vm_status_list:
+            send_telegram_message(config, "No VMs found or unable to retrieve VM status.")
+            return
+
+        for vm_status in vm_status_list:
+            parts = vm_status.split()
+            vm_id = parts[0]
+            name = parts[1]
+            status = parts[-1]
+            if status != 'running':
+                send_telegram_message(config, f"VM {name} (ID {vm_id}) is not running")
+                logging.warning(f"VM {name} (ID {vm_id}) is not running")
     except Exception as e:
         logging.error(f"Error monitoring Proxmox VMs: {e}")
 
@@ -200,23 +210,30 @@ async def service_status_handler(update: Update, context: ContextTypes.DEFAULT_T
 async def vm_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     config = setup_config()
     if check_server_id(update, context, config):
-        vm_status_list = []
-        for vm_id in config['proxmox']['vm_ids']:
-            result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
-            status = result.stdout.decode('utf-8').strip()
-            vm_status_list.append(f"VM ID {vm_id}: {status}")
-            buttons = [
-                [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
-                 InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
-                 InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(buttons)
-            await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
-        
-        if vm_status_list:
-            await update.message.reply_text('\n'.join(vm_status_list))
-        else:
-            await update.message.reply_text("No VMs found or unable to retrieve VM status.")
+        try:
+            result = subprocess.run(['qm', 'list'], stdout=subprocess.PIPE)
+            output = result.stdout.decode('utf-8').strip()
+            logging.info(f"Proxmox qm list output:\n{output}")
+            vm_status_list = output.split('\n')[1:]  # Skip the header line
+            if not vm_status_list:
+                await update.message.reply_text("No VMs found or unable to retrieve VM status.")
+                return
+
+            for vm_status in vm_status_list:
+                parts = vm_status.split()
+                vm_id = parts[0]
+                name = parts[1]
+                status = parts[-1]
+                buttons = [
+                    [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
+                     InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
+                     InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(buttons)
+                await update.message.reply_text(f"VM {name} (ID {vm_id}): {status}", reply_markup=reply_markup)
+        except Exception as e:
+            logging.error(f"Error retrieving VM status: {e}")
+            await update.message.reply_text("Error retrieving VM status.")
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
