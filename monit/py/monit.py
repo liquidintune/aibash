@@ -8,7 +8,6 @@ from time import sleep
 from typing import List, Dict, Any
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ApplicationBuilder, ContextTypes
-from proxmoxer import ProxmoxAPI
 
 # Constants
 CONFIG_FILE = 'config.json'
@@ -39,9 +38,7 @@ def load_config() -> Dict[str, Any]:
             'server_type': '',
             'services': [],
             'proxmox': {
-                'host': '',
-                'username': '',
-                'password': ''
+                'vm_ids': []
             },
             'remote_servers': []
         }
@@ -79,10 +76,8 @@ def setup_telegram() -> Dict[str, Any]:
         config['server_type'] = input(f'Enter server type (default: {detected_type}): ') or detected_type
         save_config(config)
 
-    if config['server_type'] == 'proxmox' and (not config['proxmox']['host'] or not config['proxmox']['username'] or not config['proxmox']['password']):
-        config['proxmox']['host'] = input('Enter Proxmox host (e.g., 192.168.1.1): ')
-        config['proxmox']['username'] = input('Enter Proxmox username (e.g., root@pam): ')
-        config['proxmox']['password'] = input('Enter Proxmox password: ')
+    if config['server_type'] == 'proxmox' and not config['proxmox']['vm_ids']:
+        config['proxmox']['vm_ids'] = input('Enter Proxmox VM IDs (comma-separated): ').split(',')
         save_config(config)
 
     logging.info(f"Proxmox Configuration: {config['proxmox']}")
@@ -117,16 +112,14 @@ def monitor_services() -> None:
             logging.error(f"Error monitoring service {service}: {e}")
 
 def monitor_proxmox_vms() -> None:
-    """Monitor Proxmox virtual machines."""
+    """Monitor Proxmox virtual machines using command line."""
     try:
-        logging.info(f"Connecting to Proxmox at {config['proxmox']['host']}")
-        proxmox = ProxmoxAPI(config['proxmox']['host'], user=config['proxmox']['username'], password=config['proxmox']['password'], verify_ssl=False)
-        for node in proxmox.nodes.get():
-            for vm in proxmox.nodes(node['node']).qemu.get():
-                vm_status = proxmox.nodes(node['node']).qemu(vm['vmid']).status.current.get()
-                if vm_status['status'] != 'running':
-                    send_telegram_message(f"VM {vm['name']} (ID {vm['vmid']}) is not running")
-                    logging.warning(f"VM {vm['name']} (ID {vm['vmid']}) is not running")
+        for vm_id in config['proxmox']['vm_ids']:
+            result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
+            status = result.stdout.decode('utf-8').strip()
+            if "status: running" not in status:
+                send_telegram_message(f"VM ID {vm_id} is not running")
+                logging.warning(f"VM ID {vm_id} is not running")
     except Exception as e:
         logging.error(f"Error monitoring Proxmox VMs: {e}")
 
@@ -195,23 +188,19 @@ async def service_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def vm_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /vm_status command."""
     if check_server_id(context):
-        try:
-            proxmox = ProxmoxAPI(config['proxmox']['host'], user=config['proxmox']['username'], password=config['proxmox']['password'], verify_ssl=False)
-            vms_status = []
-            for node in proxmox.nodes.get():
-                for vm in proxmox.nodes(node['node']).qemu.get():
-                    vm_status = proxmox.nodes(node['node']).qemu(vm['vmid']).status.current.get()
-                    vms_status.append(f"VM {vm['name']} (ID {vm['vmid']}): {vm_status['status']}")
-                    buttons = [
-                        [InlineKeyboardButton("Start", callback_data=f"start_vm:{node['node']}:{vm['vmid']}"),
-                         InlineKeyboardButton("Stop", callback_data=f"stop_vm:{node['node']}:{vm['vmid']}"),
-                         InlineKeyboardButton("Restart", callback_data=f"restart_vm:{node['node']}:{vm['vmid']}")]
-                    ]
-                    reply_markup = InlineKeyboardMarkup(buttons)
-                    await update.message.reply_text(f"VM {vm['name']} (ID {vm['vmid']}): {vm_status['status']}", reply_markup=reply_markup)
-        except Exception as e:
-            logging.error(f"Error fetching VM status: {e}")
-            await update.message.reply_text(f"Error fetching VM status: {e}")
+        vm_status_list = []
+        for vm_id in config['proxmox']['vm_ids']:
+            result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
+            status = result.stdout.decode('utf-8').strip()
+            vm_status_list.append(f"VM ID {vm_id}: {status}")
+            buttons = [
+                [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
+                 InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
+                 InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(buttons)
+            await update.message.reply_text(f"VM ID {vm_id}: {status}", reply_markup=reply_markup)
+        await update.message.reply_text('\n'.join(vm_status_list))
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle button presses in Telegram."""
@@ -232,16 +221,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text(text=f"Service {service_name} action {action} performed.")
 
     if target_type == "vm":
-        node = data[2]
-        vmid = data[3]
-        proxmox = ProxmoxAPI(config['proxmox']['host'], user=config['proxmox']['username'], password=config['proxmox']['password'], verify_ssl=False)
+        vm_id = data[2]
         if action == "start_vm":
-            proxmox.nodes(node).qemu(vmid).status.start.post()
+            subprocess.run(['qm', 'start', vm_id])
         elif action == "stop_vm":
-            proxmox.nodes(node).qemu(vmid).status.stop.post()
+            subprocess.run(['qm', 'stop', vm_id])
         elif action == "restart_vm":
-            proxmox.nodes(node).qemu(vmid).status.reboot.post()
-        await query.edit_message_text(text=f"VM ID {vmid} action {action} performed.")
+            subprocess.run(['qm', 'reset', vm_id])
+        await query.edit_message_text(text=f"VM ID {vm_id} action {action} performed.")
 
 async def server_id_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the /server_id command."""
