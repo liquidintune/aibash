@@ -29,9 +29,9 @@ def load_config() -> Dict[str, Any]:
     """Load or initialize configuration."""
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
+            config = json.load(f)
     else:
-        return {
+        config = {
             'telegram_token': '',
             'chat_id': '',
             'server_id': '',
@@ -42,6 +42,14 @@ def load_config() -> Dict[str, Any]:
             },
             'remote_servers': []
         }
+    
+    # Ensure all necessary keys are present
+    if 'proxmox' not in config:
+        config['proxmox'] = {'vm_ids': []}
+    if 'vm_ids' not in config['proxmox']:
+        config['proxmox']['vm_ids'] = []
+    
+    return config
 
 def save_config(config: Dict[str, Any]) -> None:
     """Save configuration to a file."""
@@ -76,7 +84,7 @@ def setup_telegram() -> Dict[str, Any]:
         config['server_type'] = input(f'Enter server type (default: {detected_type}): ') or detected_type
         save_config(config)
 
-    if config['server_type'] == 'proxmox' and 'vm_ids' not in config['proxmox']:
+    if config['server_type'] == 'proxmox' and not config['proxmox']['vm_ids']:
         config['proxmox']['vm_ids'] = input('Enter Proxmox VM IDs (comma-separated): ').split(',')
         save_config(config)
 
