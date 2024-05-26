@@ -91,15 +91,15 @@ def setup_config() -> Dict[str, Any]:
     logging.info(f"Proxmox Configuration: {config['proxmox']}")
     return config
 
-def send_telegram_message(config: Dict[str, Any], message: str) -> None:
+def send_telegram_message(config: Dict[str, Any], message: str, reply_markup=None) -> None:
     """Send a message to the configured Telegram chat."""
     bot = Bot(token=config['telegram_token'])
     try:
         if len(message) > MAX_MESSAGE_LENGTH:
             for i in range(0, len(message), MAX_MESSAGE_LENGTH):
-                bot.send_message(chat_id=config['chat_id'], text=message[i:i + MAX_MESSAGE_LENGTH])
+                bot.send_message(chat_id=config['chat_id'], text=message[i:i + MAX_MESSAGE_LENGTH], reply_markup=reply_markup)
         else:
-            bot.send_message(chat_id=config['chat_id'], text=message)
+            bot.send_message(chat_id=config['chat_id'], text=message, reply_markup=reply_markup)
         logging.info(f"Sent message to Telegram: {message}")
     except BadRequest as e:
         logging.error(f"BadRequest error: {e.message}")
@@ -142,8 +142,17 @@ def monitor_proxmox_vms(config: Dict[str, Any]) -> None:
             if status != 'running':
                 send_telegram_message(config, f"VM {name} (ID {vm_id}) is not running")
                 logging.warning(f"VM {name} (ID {vm_id}) is not running")
+            buttons = [
+                [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
+                 InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
+                 InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}"),
+                 InlineKeyboardButton("Status", callback_data=f"status_vm:{vm_id}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(buttons)
+            send_telegram_message(config, f"VM {name} (ID {vm_id}): {status}", reply_markup)
     except Exception as e:
         logging.error(f"Error monitoring Proxmox VMs: {e}")
+        send_telegram_message(config, "Error retrieving VM status.")
 
 def monitor_remote_servers(config: Dict[str, Any]) -> None:
     """Monitor remote servers using ping."""
@@ -194,15 +203,14 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def service_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     config = setup_config()
     if check_server_id(update, context, config):
-        services_status = []
         for service in config['services']:
             result = subprocess.run(['systemctl', 'is-active', service], stdout=subprocess.PIPE)
             status = result.stdout.decode('utf-8').strip()
-            services_status.append(f"{service}: {status}")
             buttons = [
                 [InlineKeyboardButton("Start", callback_data=f"start_service:{service}"),
                  InlineKeyboardButton("Stop", callback_data=f"stop_service:{service}"),
-                 InlineKeyboardButton("Restart", callback_data=f"restart_service:{service}")]
+                 InlineKeyboardButton("Restart", callback_data=f"restart_service:{service}"),
+                 InlineKeyboardButton("Status", callback_data=f"status_service:{service}")]
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
             await update.message.reply_text(f"{service}: {status}", reply_markup=reply_markup)
@@ -227,7 +235,8 @@ async def vm_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 buttons = [
                     [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
                      InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
-                     InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}")]
+                     InlineKeyboardButton("Restart", callback_data=f"restart_vm:{vm_id}"),
+                     InlineKeyboardButton("Status", callback_data=f"status_vm:{vm_id}")]
                 ]
                 reply_markup = InlineKeyboardMarkup(buttons)
                 await update.message.reply_text(f"VM {name} (ID {vm_id}): {status}", reply_markup=reply_markup)
@@ -251,6 +260,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             subprocess.run(['systemctl', 'stop', service_name])
         elif action == "restart_service":
             subprocess.run(['systemctl', 'restart', service_name])
+        elif action == "status_service":
+            result = subprocess.run(['systemctl', 'status', service_name], stdout=subprocess.PIPE)
+            status = result.stdout.decode('utf-8').strip()
+            send_telegram_message(config, f"Service {service_name} status:\n{status}")
         await query.edit_message_text(text=f"Service {service_name} action {action} performed.")
 
     if target_type == "vm":
@@ -261,6 +274,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             subprocess.run(['qm', 'stop', vm_id])
         elif action == "restart_vm":
             subprocess.run(['qm', 'reset', vm_id])
+        elif action == "status_vm":
+            result = subprocess.run(['qm', 'status', vm_id], stdout=subprocess.PIPE)
+            status = result.stdout.decode('utf-8').strip()
+            send_telegram_message(config, f"VM ID {vm_id} status:\n{status}")
         await query.edit_message_text(text=f"VM ID {vm_id} action {action} performed.")
 
 async def server_id_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -293,6 +310,21 @@ def setup_telegram_commands(config: Dict[str, Any]) -> Application:
 
     application.run_polling()
     return application
+
+def kill_previous_instances():
+    """Kill previous instances of this script."""
+    current_pid = os.getpid()
+    script_name = os.path.basename(__file__)
+    result = subprocess.run(['pgrep', '-f', script_name], stdout=subprocess.PIPE)
+    pids = result.stdout.decode('utf-8').strip().split('\n')
+    
+    for pid in pids:
+        if pid and int(pid) != current_pid:
+            logging.info(f"Killing previous instance with PID: {pid}")
+            subprocess.run(['kill', '-9', pid])
+
+# Kill previous instances of this script
+kill_previous_instances()
 
 # Load or setup configuration
 config = setup_config()
