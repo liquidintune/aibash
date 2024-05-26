@@ -8,7 +8,7 @@ from time import sleep
 from typing import List, Dict, Any
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, Application, ApplicationBuilder, ContextTypes
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TimedOut
 
 # Constants
 CONFIG_FILE = 'config.json'
@@ -91,18 +91,28 @@ def setup_config() -> Dict[str, Any]:
     logging.info(f"Proxmox Configuration: {config['proxmox']}")
     return config
 
+def log_telegram_api_request(response):
+    """Log the Telegram API request."""
+    logging.info(f"HTTP Request: {response.request.method} {response.url} {response.status_code}")
+    logging.info(f"Response: {response.text}")
+
 def send_telegram_message(config: Dict[str, Any], message: str, reply_markup=None) -> None:
     """Send a message to the configured Telegram chat."""
     bot = Bot(token=config['telegram_token'])
     try:
         if len(message) > MAX_MESSAGE_LENGTH:
             for i in range(0, len(message), MAX_MESSAGE_LENGTH):
-                bot.send_message(chat_id=config['chat_id'], text=message[i:i + MAX_MESSAGE_LENGTH], reply_markup=reply_markup)
+                response = bot.send_message(chat_id=config['chat_id'], text=message[i:i + MAX_MESSAGE_LENGTH], reply_markup=reply_markup)
+                log_telegram_api_request(response)
+                sleep(1)  # Adding delay between messages
         else:
-            bot.send_message(chat_id=config['chat_id'], text=message, reply_markup=reply_markup)
+            response = bot.send_message(chat_id=config['chat_id'], text=message, reply_markup=reply_markup)
+            log_telegram_api_request(response)
         logging.info(f"Sent message to Telegram: {message}")
     except BadRequest as e:
         logging.error(f"BadRequest error: {e.message}")
+    except TimedOut as e:
+        logging.error(f"TimedOut error: {e.message}")
     except Exception as e:
         logging.error(f"Failed to send message to Telegram: {e}")
 
@@ -139,6 +149,9 @@ def monitor_proxmox_vms(config: Dict[str, Any]) -> None:
             vm_id = parts[0]
             name = parts[1]
             status = parts[-1]
+            if status != 'running':
+                send_telegram_message(config, f"VM {name} (ID {vm_id}) is not running")
+                logging.warning(f"VM {name} (ID {vm_id}) is not running")
             buttons = [
                 [InlineKeyboardButton("Start", callback_data=f"start_vm:{vm_id}"),
                  InlineKeyboardButton("Stop", callback_data=f"stop_vm:{vm_id}"),
@@ -147,6 +160,7 @@ def monitor_proxmox_vms(config: Dict[str, Any]) -> None:
             ]
             reply_markup = InlineKeyboardMarkup(buttons)
             send_telegram_message(config, f"VM {name} (ID {vm_id}): {status}", reply_markup)
+            sleep(1)  # Adding delay between messages
     except Exception as e:
         logging.error(f"Error monitoring Proxmox VMs: {e}")
         send_telegram_message(config, "Error retrieving VM status.")
@@ -237,6 +251,7 @@ async def vm_status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 ]
                 reply_markup = InlineKeyboardMarkup(buttons)
                 await update.message.reply_text(f"VM {name} (ID {vm_id}): {status}", reply_markup=reply_markup)
+                sleep(1)  # Adding delay between messages
         except Exception as e:
             logging.error(f"Error retrieving VM status: {e}")
             await update.message.reply_text("Error retrieving VM status.")
