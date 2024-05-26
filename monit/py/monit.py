@@ -178,7 +178,7 @@ def button_handler(update, context):
     target_type = data[1]
     
     if target_type == "service":
-        service_name = data[1]
+        service_name = data[2]
         if action == "start_service":
             subprocess.run(['systemctl', 'start', service_name])
         elif action == "stop_service":
