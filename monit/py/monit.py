@@ -11,33 +11,13 @@ from telegram.ext import Updater, CommandHandler, CallbackContext
 CONFIG_PATH = 'config.json'
 CHECK_INTERVAL = 60  # Интервал проверки в секундах
 
-def save_config(token, chat_id, server_id):
-    config = {
-        'token': token,
-        'chat_id': chat_id,
-        'server_id': server_id
-    }
-    with open(CONFIG_PATH, 'w') as f:
-        json.dump(config, f)
-
 def load_config():
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH, 'r') as f:
             return json.load(f)
+    else:
+        raise FileNotFoundError("Configuration file not found. Please run config_setup.py first.")
     return None
-
-def get_config():
-    config = load_config()
-    if not config:
-        config = {}
-    if 'token' not in config:
-        config['token'] = input("Enter your Telegram bot token: ")
-    if 'chat_id' not in config:
-        config['chat_id'] = input("Enter your Telegram chat ID: ")
-    if 'server_id' not in config:
-        config['server_id'] = input("Enter your server ID: ")
-    save_config(config['token'], config['chat_id'], config['server_id'])
-    return config
 
 def send_message(token, chat_id, text):
     url = f'https://api.telegram.org/bot{token}/sendMessage'
@@ -93,7 +73,7 @@ def start(update: Update, context: CallbackContext):
     update.message.reply_text('Monitoring bot started!')
 
 def handle_command(update: Update, context: CallbackContext):
-    config = get_config()
+    config = load_config()
     command = update.message.text.split()
     if len(command) < 3 or command[1] != config['server_id']:
         return
@@ -199,7 +179,7 @@ def monitor_status(config):
         time.sleep(CHECK_INTERVAL)
 
 def main():
-    config = get_config()
+    config = load_config()
     script_name = os.path.basename(__file__)
     kill_existing_processes(script_name, config['server_id'])
     
