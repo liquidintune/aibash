@@ -5,11 +5,20 @@ import subprocess
 import psutil
 import time
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, CallbackContext, Dispatcher
 
 # Конфигурация
 CONFIG_PATH = 'config.json'
 CHECK_INTERVAL = 60  # Интервал проверки в секундах
+
+def save_config(token, chat_id, server_id):
+    config = {
+        'token': token,
+        'chat_id': chat_id,
+        'server_id': server_id
+    }
+    with open(CONFIG_PATH, 'w') as f:
+        json.dump(config, f)
 
 def load_config():
     if os.path.exists(CONFIG_PATH):
@@ -17,7 +26,6 @@ def load_config():
             return json.load(f)
     else:
         raise FileNotFoundError("Configuration file not found. Please run config_setup.py first.")
-    return None
 
 def send_message(token, chat_id, text):
     url = f'https://api.telegram.org/bot{token}/sendMessage'
@@ -186,7 +194,7 @@ def main():
     # Отправка сообщения о старте
     send_message(config['token'], config['chat_id'], f'Monitoring bot started on server {config["server_id"]}!')
 
-    updater = Updater(config['token'])
+    updater = Updater(token=config['token'], use_context=True)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler('start', start))
     dp.add_handler(CommandHandler('command', handle_command))
