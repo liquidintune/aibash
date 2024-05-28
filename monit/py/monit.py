@@ -195,7 +195,7 @@ def main():
     send_message(config['token'], config['chat_id'], f'Monitoring bot started on server {config["server_id"]}!')
 
     bot = Bot(token=config['token'])
-    updater = Updater(bot=bot, use_context=True)
+    updater = Updater(bot=bot)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler('start', start))
     dp.add_handler(CommandHandler('command', handle_command))
