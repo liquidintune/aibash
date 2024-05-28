@@ -155,6 +155,8 @@ def handle_command(update: Update, context: CallbackContext):
         send_message(config['token'], config['chat_id'], f'VM {target} status: {result}')
     elif action == "/help" and len(command) > 1 and command[1] == config['server_id']:
         send_help_message(config['token'], config['chat_id'])
+    elif action == "/server_id":
+        send_message(config['token'], config['chat_id'], f'Server ID: {config["server_id"]}')
     else:
         send_message(config['token'], config['chat_id'], 'Unknown command')
 
@@ -185,6 +187,9 @@ def send_help_message(token, chat_id):
         "\n"
         "/status_vm <server_id> <vm_id> - Check the status of a virtual machine\n"
         "Example: /status_vm server1 101\n"
+        "\n"
+        "/server_id - Report the server ID\n"
+        "Example: /server_id\n"
     )
     send_message(token, chat_id, help_text)
 
@@ -247,6 +252,7 @@ def main():
         dp.add_handler(CommandHandler('start', start))
         dp.add_handler(CommandHandler('command', handle_command))
         dp.add_handler(CommandHandler('help', lambda update, context: send_help_message(config['token'], config['chat_id']) if update.message.text.split()[1] == config['server_id'] else None))
+        dp.add_handler(CommandHandler('server_id', lambda update, context: send_message(config['token'], config['chat_id'], f'Server ID: {config["server_id"]}')))
         
         # Запуск мониторинга в фоновом режиме
         updater.start_polling()
