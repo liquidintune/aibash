@@ -4,7 +4,7 @@ import os
 import subprocess
 import psutil
 import time
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, CallbackContext
 
 # Конфигурация
@@ -194,7 +194,8 @@ def main():
     # Отправка сообщения о старте
     send_message(config['token'], config['chat_id'], f'Monitoring bot started on server {config["server_id"]}!')
 
-    updater = Updater(token=config['token'], use_context=True)
+    bot = Bot(token=config['token'])
+    updater = Updater(bot=bot, use_context=True)
     dp = updater.dispatcher
     dp.add_handler(CommandHandler('start', start))
     dp.add_handler(CommandHandler('command', handle_command))
