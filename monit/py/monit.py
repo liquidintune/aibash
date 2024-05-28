@@ -5,7 +5,7 @@ import subprocess
 import psutil
 import time
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext, Dispatcher
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
 # Конфигурация
 CONFIG_PATH = 'config.json'
