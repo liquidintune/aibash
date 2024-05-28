@@ -123,10 +123,15 @@ def start(update: Update, context: CallbackContext):
 def handle_command(update: Update, context: CallbackContext):
     config = load_config()
     command = update.message.text.split()
-    if len(command) < 3 or command[1] != config['server_id']:
+    if len(command) < 2:
         return
 
     action = command[0]
+    if action == "/server_id":
+        send_message(config['token'], config['chat_id'], f'Server ID: {config["server_id"]}')
+    elif len(command) < 3 or command[1] != config['server_id']:
+        return
+
     target = command[2]
 
     if action == "/start_service":
@@ -155,14 +160,14 @@ def handle_command(update: Update, context: CallbackContext):
         send_message(config['token'], config['chat_id'], f'VM {target} status: {result}')
     elif action == "/help" and len(command) > 1 and command[1] == config['server_id']:
         send_help_message(config['token'], config['chat_id'])
-    elif action == "/server_id":
-        send_message(config['token'], config['chat_id'], f'Server ID: {config["server_id"]}')
     else:
         send_message(config['token'], config['chat_id'], 'Unknown command')
 
 def send_help_message(token, chat_id):
     help_text = (
         "Available commands:\n"
+        "\n"
+        "/server_id - Get the server ID\n"
         "\n"
         "/start_service <server_id> <service_name> - Start a system service\n"
         "Example: /start_service server1 nginx\n"
@@ -187,9 +192,6 @@ def send_help_message(token, chat_id):
         "\n"
         "/status_vm <server_id> <vm_id> - Check the status of a virtual machine\n"
         "Example: /status_vm server1 101\n"
-        "\n"
-        "/server_id - Report the server ID\n"
-        "Example: /server_id\n"
     )
     send_message(token, chat_id, help_text)
 
