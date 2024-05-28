@@ -30,8 +30,12 @@ def load_config():
 def send_message(token, chat_id, text):
     url = f'https://api.telegram.org/bot{token}/sendMessage'
     data = {'chat_id': chat_id, 'text': text}
-    response = requests.post(url, data=data)
-    log_response(response)
+    try:
+        response = requests.post(url, data=data)
+        response.raise_for_status()
+        log_response(response)
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending message: {e}")
 
 def log_response(response):
     with open('telegram_log.json', 'a') as f:
@@ -39,43 +43,79 @@ def log_response(response):
         f.write('\n')
 
 def check_service_status(service_name):
-    status = os.system(f'systemctl is-active --quiet {service_name}')
-    return status == 0
+    try:
+        status = os.system(f'systemctl is-active --quiet {service_name}')
+        return status == 0
+    except Exception as e:
+        print(f"Error checking service status: {e}")
+        return False
 
 def manage_service(service_name, action):
-    os.system(f'systemctl {action} {service_name}')
-    return check_service_status(service_name)
+    try:
+        os.system(f'systemctl {action} {service_name}')
+        return check_service_status(service_name)
+    except Exception as e:
+        print(f"Error managing service: {e}")
+        return False
 
 def get_vm_list():
-    result = subprocess.check_output('qm list', shell=True).decode('utf-8')
-    lines = result.strip().split('\n')[1:]  # Пропускаем заголовок
-    vms = [line.split()[0] for line in lines]
-    return vms
+    try:
+        result = subprocess.check_output('qm list', shell=True).decode('utf-8')
+        lines = result.strip().split('\n')[1:]  # Пропускаем заголовок
+        vms = [line.split()[0] for line in lines]
+        return vms
+    except subprocess.CalledProcessError as e:
+        print(f"Error getting VM list: {e}")
+        return []
 
 def get_vm_status(vm_id):
-    status = subprocess.check_output(f'qm status {vm_id}', shell=True).decode('utf-8').strip()
-    return status
+    try:
+        status = subprocess.check_output(f'qm status {vm_id}', shell=True).decode('utf-8').strip()
+        return status
+    except subprocess.CalledProcessError as e:
+        print(f"Error getting VM status: {e}")
+        return "unknown"
 
 def manage_vm(vm_id, action):
-    subprocess.call(f'qm {action} {vm_id}', shell=True)
-    return get_vm_status(vm_id)
+    try:
+        subprocess.call(f'qm {action} {vm_id}', shell=True)
+        return get_vm_status(vm_id)
+    except subprocess.CalledProcessError as e:
+        print(f"Error managing VM: {e}")
+        return "unknown"
 
 def get_critical_services():
     services = ['pve-cluster', 'pvedaemon', 'pveproxy', 'pvestatd', 'pve-firewall', 'pve-ha-crm', 'pve-ha-lrm', 'pve-ha-manager']
     return services
 
 def ping_server(ip_address):
-    response = os.system(f'ping -c 1 {ip_address}')
-    return response == 0
+    try:
+        response = os.system(f'ping -c 1 {ip_address}')
+        return response == 0
+    except Exception as e:
+        print(f"Error pinging server: {e}")
+        return False
 
 def check_disk_usage():
-    return psutil.disk_usage('/').percent
+    try:
+        return psutil.disk_usage('/').percent
+    except Exception as e:
+        print(f"Error checking disk usage: {e}")
+        return -1
 
 def check_cpu_usage():
-    return psutil.cpu_percent(interval=1)
+    try:
+        return psutil.cpu_percent(interval=1)
+    except Exception as e:
+        print(f"Error checking CPU usage: {e}")
+        return -1
 
 def check_memory_usage():
-    return psutil.virtual_memory().percent
+    try:
+        return psutil.virtual_memory().percent
+    except Exception as e:
+        print(f"Error checking memory usage: {e}")
+        return -1
 
 def start(update: Update, context: CallbackContext):
     update.message.reply_text('Monitoring bot started!')
@@ -149,62 +189,71 @@ def send_help_message(token, chat_id):
     send_message(token, chat_id, help_text)
 
 def kill_existing_processes(script_name, server_id):
-    result = subprocess.check_output(['ps', '-xauf'])
-    lines = result.decode('utf-8').split('\n')
-    for line in lines:
-        if script_name in line and server_id in line:
-            parts = line.split()
-            pid = int(parts[1])
-            if pid != os.getpid():
-                os.system(f'kill -9 {pid}')
+    try:
+        result = subprocess.check_output(['ps', '-xauf'])
+        lines = result.decode('utf-8').split('\n')
+        for line in lines:
+            if script_name in line and server_id in line:
+                parts = line.split()
+                pid = int(parts[1])
+                if pid != os.getpid():
+                    os.system(f'kill -9 {pid}')
+    except Exception as e:
+        print(f"Error killing existing processes: {e}")
 
 def monitor_status(config):
     previous_services_status = {}
     previous_vms_status = {}
 
     while True:
-        # Проверка состояния системных сервисов
-        services = get_critical_services()
-        for service in services:
-            current_status = check_service_status(service)
-            previous_status = previous_services_status.get(service)
-            if previous_status is not None and previous_status != current_status:
-                send_message(config['token'], config['chat_id'], f'Service {service} changed status to: {"running" if current_status else "stopped"}')
-            previous_services_status[service] = current_status
+        try:
+            # Проверка состояния системных сервисов
+            services = get_critical_services()
+            for service in services:
+                current_status = check_service_status(service)
+                previous_status = previous_services_status.get(service)
+                if previous_status is not None and previous_status != current_status:
+                    send_message(config['token'], config['chat_id'], f'Service {service} changed status to: {"running" if current_status else "stopped"}')
+                previous_services_status[service] = current_status
 
-        # Проверка состояния виртуальных машин
-        current_vms = get_vm_list()
-        new_vms = set(current_vms) - set(previous_vms_status.keys())
-        for vm in new_vms:
-            send_message(config['token'], config['chat_id'], f'New VM created: {vm}')
-        for vm in current_vms:
-            current_status = get_vm_status(vm)
-            previous_status = previous_vms_status.get(vm)
-            if previous_status is not None and previous_status != current_status:
-                send_message(config['token'], config['chat_id'], f'VM {vm} changed status to: {current_status}')
-            previous_vms_status[vm] = current_status
+            # Проверка состояния виртуальных машин
+            current_vms = get_vm_list()
+            new_vms = set(current_vms) - set(previous_vms_status.keys())
+            for vm in new_vms:
+                send_message(config['token'], config['chat_id'], f'New VM created: {vm}')
+            for vm in current_vms:
+                current_status = get_vm_status(vm)
+                previous_status = previous_vms_status.get(vm)
+                if previous_status is not None and previous_status != current_status:
+                    send_message(config['token'], config['chat_id'], f'VM {vm} changed status to: {current_status}')
+                previous_vms_status[vm] = current_status
 
-        time.sleep(CHECK_INTERVAL)
+            time.sleep(CHECK_INTERVAL)
+        except Exception as e:
+            print(f"Error in monitor_status loop: {e}")
 
 def main():
-    config = load_config()
-    script_name = os.path.basename(__file__)
-    kill_existing_processes(script_name, config['server_id'])
-    
-    # Отправка сообщения о старте
-    send_message(config['token'], config['chat_id'], f'Monitoring bot started on server {config["server_id"]}!')
+    try:
+        config = load_config()
+        script_name = os.path.basename(__file__)
+        kill_existing_processes(script_name, config['server_id'])
+        
+        # Отправка сообщения о старте
+        send_message(config['token'], config['chat_id'], f'Monitoring bot started on server {config["server_id"]}!')
 
-    bot = Bot(token=config['token'])
-    updater = Updater(bot=bot)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(CommandHandler('command', handle_command))
-    dp.add_handler(CommandHandler('help', lambda update, context: send_help_message(config['token'], config['chat_id']) if update.message.text.split()[1] == config['server_id'] else None))
-    
-    # Запуск мониторинга в фоновом режиме
-    updater.start_polling()
-    monitor_status(config)
-    updater.idle()
+        bot = Bot(token=config['token'])
+        updater = Updater(bot=bot)
+        dp = updater.dispatcher
+        dp.add_handler(CommandHandler('start', start))
+        dp.add_handler(CommandHandler('command', handle_command))
+        dp.add_handler(CommandHandler('help', lambda update, context: send_help_message(config['token'], config['chat_id']) if update.message.text.split()[1] == config['server_id'] else None))
+        
+        # Запуск мониторинга в фоновом режиме
+        updater.start_polling()
+        monitor_status(config)
+        updater.idle()
+    except Exception as e:
+        print(f"Error in main function: {e}")
 
 if __name__ == '__main__':
     main()
